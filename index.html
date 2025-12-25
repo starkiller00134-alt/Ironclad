@@ -1,1179 +1,1413 @@
-<!--
-IRON CLAD — v0.1 (Combat Prototype, Mobile-First, Single-File)
-CHANGELOG
-- v0.1: Replaced static blocks with layered “character sprites” (chunky pixel silhouette)
-- v0.1: Added slight top-down arena camera (your choice: 1B)
-- v0.1: Implemented Gen-1-like turn flow with queued text + animations
-- v0.1: Slash now lunges forward + hit spark + enemy squish (your choice: 3A)
-- v0.1: Fire now casts a projectile + impact flash
-- v0.1: Added tiny engine layer: state machine, action queue, animation timelines
-- v0.1: Added localStorage save w/ versioning + auto-save after battle
-- v0.1: Added Debug toggle (spawn enemy / heal / grant XP)
-SAVE COMPAT
-- Save schema version: 0.1 (will migrate forward in later builds)
--->
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ironclad — Combat Prototype v0.1</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Ironclad — Combat Prototype</title>
   <style>
     :root{
-      --bg:#0b0b0e;
-      --panel:#111118;
-      --panel2:#151525;
-      --text:#e8e8ee;
-      --muted:#a6a6b4;
-      --btn:#2b2b34;
-      --btn2:#3a3a48;
-      --ok:#2ecc71;
-      --bad:#e74c3c;
-      --accent:#8e44ad;
+      --bg:#0b0b10;
+      --panel:rgba(255,255,255,.06);
+      --panel2:rgba(255,255,255,.09);
+      --text:rgba(255,255,255,.9);
+      --muted:rgba(255,255,255,.65);
+      --accent:rgba(170,140,255,.9);
+      --good:rgba(120,220,120,.9);
+      --bad:rgba(255,120,120,.9);
+      --line:rgba(255,255,255,.14);
     }
-
-    html,body{height:100%; background:var(--bg); margin:0; color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
-    body{display:flex; align-items:stretch; justify-content:center;}
-
-    .wrap{
-      width:min(980px, 100vw);
-      height:100vh;
-      display:flex;
-      flex-direction:column;
-      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-      box-sizing:border-box;
-    }
-
-    .topbar{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:10px 12px;
-      gap:10px;
-    }
-    .title{
-      font-weight:700; letter-spacing:0.5px; font-size:14px; color:var(--muted);
-      display:flex; align-items:center; gap:10px;
-    }
-    .pill{
-      font-size:12px; padding:4px 8px; border-radius:999px;
-      background:linear-gradient(180deg, #202031, #141421);
-      border:1px solid rgba(255,255,255,0.08);
-      color:var(--muted);
-    }
-    .right{
-      display:flex; gap:8px; align-items:center;
-    }
-    button{
-      -webkit-tap-highlight-color: transparent;
-      border:1px solid rgba(255,255,255,0.10);
-      background:linear-gradient(180deg, var(--btn2), var(--btn));
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 700px at 50% -10%, rgba(170,140,255,.18), transparent 60%),
+                  radial-gradient(900px 500px at 20% 30%, rgba(120,220,120,.10), transparent 60%),
+                  var(--bg);
       color:var(--text);
-      border-radius:12px;
-      padding:12px 14px;
-      font-size:16px;
-      font-weight:700;
-      cursor:pointer;
-      user-select:none;
-    }
-    button:active{ transform: translateY(1px); filter:brightness(1.07);}
-    button.small{
-      padding:10px 12px; font-size:14px; border-radius:10px; font-weight:700;
-    }
-    button.ghost{
-      background:transparent;
-      border:1px solid rgba(255,255,255,0.12);
-      color:var(--muted);
-    }
-    button.primary{
-      border-color: rgba(142,68,173,0.35);
-      box-shadow: 0 0 0 2px rgba(142,68,173,0.12) inset;
-    }
-    button.danger{
-      border-color: rgba(231,76,60,0.35);
-      box-shadow: 0 0 0 2px rgba(231,76,60,0.12) inset;
-    }
-
-    .stage{
-      flex:1;
+      min-height:100vh;
       display:flex;
-      flex-direction:column;
-      padding:0 12px 12px;
-      gap:10px;
-      box-sizing:border-box;
-    }
-
-    .canvasShell{
-      background:linear-gradient(180deg, #0f0f14, #0b0b0e);
-      border:1px solid rgba(255,255,255,0.10);
-      border-radius:16px;
-      overflow:hidden;
-      position:relative;
-      min-height: 240px;
-    }
-    canvas{display:block; width:100%; height:auto; background:#101016;}
-    .hud{
-      position:absolute; left:0; right:0; top:0;
-      display:flex; justify-content:space-between; gap:10px;
-      padding:10px;
-      pointer-events:none;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size:12px;
-      color:#d9d9e2;
-      text-shadow: 0 1px 0 rgba(0,0,0,0.4);
-    }
-    .hud .box{
-      background:rgba(0,0,0,0.25);
-      border:1px solid rgba(255,255,255,0.10);
-      padding:6px 8px;
-      border-radius:10px;
-      pointer-events:none;
-      backdrop-filter: blur(2px);
-    }
-
-    .textBox{
-      background:linear-gradient(180deg, #121220, #0e0e16);
-      border:1px solid rgba(255,255,255,0.10);
-      border-radius:16px;
-      padding:12px 12px;
-      min-height:74px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .msg{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size:16px;
-      line-height:1.25;
-      color:#e9e9f1;
-      white-space:pre-wrap;
-      flex:1;
-    }
-
-    .cmdRow{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
       justify-content:center;
     }
-    .cmdRow button{
-      min-width: 140px;
-      padding:14px 16px;
-      border-radius:14px;
-      font-size:18px;
+    .wrap{
+      width:min(980px, 100%);
+      padding:14px 12px 28px;
     }
-
-    /* Debug Drawer */
-    .debug{
-      display:none;
-      background:linear-gradient(180deg, #131322, #0e0e16);
-      border:1px solid rgba(255,255,255,0.10);
-      border-radius:16px;
-      padding:12px;
+    .topbar{
+      display:flex;
+      align-items:center;
       gap:10px;
-      flex-direction:column;
+      flex-wrap:wrap;
+      margin-bottom:10px;
     }
-    .debug.on{display:flex;}
-    .debug .row{display:flex; gap:10px; flex-wrap:wrap;}
-    .debug .row button{min-width: 160px;}
-
-    .foot{
-      padding:0 12px 12px;
-      color:var(--muted);
+    .brand{
+      font-weight:800;
+      letter-spacing:.18em;
+      color:rgba(255,255,255,.75);
+      margin-right:auto;
+    }
+    .pill{
+      background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+      border:1px solid var(--line);
+      padding:10px 12px;
+      border-radius:999px;
       font-size:12px;
-      text-align:center;
+      color:rgba(255,255,255,.78);
+    }
+    .btn{
+      background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.06));
+      border:1px solid rgba(255,255,255,.16);
+      color:rgba(255,255,255,.9);
+      border-radius:16px;
+      padding:10px 12px;
+      font-weight:700;
+      letter-spacing:.02em;
+      cursor:pointer;
+      touch-action:manipulation;
+    }
+    .btn:active{transform:translateY(1px)}
+    .grid{
+      display:grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap:12px;
+    }
+    @media (max-width: 860px){
+      .grid{grid-template-columns: 1fr}
+    }
+
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border:1px solid rgba(255,255,255,.14);
+      border-radius:18px;
+      overflow:hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    }
+    .stage{
+      padding:10px;
+    }
+    canvas{
+      width:100%;
+      height:auto;
+      display:block;
+      background: radial-gradient(1200px 420px at 50% 110%, rgba(0,0,0,.35), transparent 60%),
+                  linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.10);
+      touch-action:manipulation;
+    }
+    .right{
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .sectionTitle{
+      font-size:12px;
+      color:var(--muted);
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      margin:0 0 6px;
+    }
+    .actions{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .actions .btn{
+      padding:14px 12px;
+      border-radius:18px;
+      font-size:16px;
+    }
+    .actions .btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+    }
+    .smallActions{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .smallActions .btn{
+      font-size:13px;
+      padding:10px 10px;
+      border-radius:14px;
+    }
+    .log{
+      padding:12px;
+      min-height:92px;
+      background:linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.12));
+      border-top:1px solid rgba(255,255,255,.10);
+      color:rgba(255,255,255,.86);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:14px;
+      line-height:1.35;
+      white-space:pre-wrap;
+    }
+    .hint{
+      font-size:12px;
+      color:rgba(255,255,255,.65);
+    }
+    .row{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    }
+    .chip{
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06);
+      padding:7px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color:rgba(255,255,255,.75);
+    }
+    .targetRow{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+    select{
+      width:100%;
+      padding:10px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.22);
+      color:rgba(255,255,255,.86);
+      font-weight:700;
+    }
+    option{background:#101018}
+
+    .statGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:8px 10px;
+      margin-top:10px;
+    }
+    .stat{
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(0,0,0,.20);
+      border-radius:14px;
+      padding:10px 10px;
+    }
+    .stat .k{
+      font-size:11px;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:rgba(255,255,255,.60);
+      margin-bottom:6px;
+    }
+    .stat .v{
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-weight:900;
+      color:rgba(255,255,255,.90);
+      font-size:16px;
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="topbar">
-      <div class="title">
-        IRON CLAD <span class="pill">Combat Prototype v0.1</span>
-        <span class="pill" id="savePill">Save: —</span>
-      </div>
-      <div class="right">
-        <button class="small ghost" id="btnReset">Reset Save</button>
-        <button class="small primary" id="btnDebug">Debug: OFF</button>
-      </div>
+      <div class="brand">IRONCLAD</div>
+      <div class="pill">Combat Prototype v0.3 — Turn-Based + Targeting</div>
+      <button class="btn" id="resetBtn">Reset Battle</button>
+      <button class="btn" id="toggleDebugBtn">Debug: OFF</button>
     </div>
 
-    <div class="stage">
-      <div class="canvasShell">
-        <div class="hud">
-          <div class="box" id="hudLeft">Kael Varrin • HP: — • Lvl: —</div>
-          <div class="box" id="hudRight">Enemy • HP: —</div>
+    <div class="grid">
+      <div class="card stage">
+        <canvas id="c" width="960" height="540" aria-label="Battle canvas"></canvas>
+        <div class="log" id="log"></div>
+      </div>
+
+      <div class="card right">
+        <div>
+          <p class="sectionTitle">Actions</p>
+          <div class="actions">
+            <button class="btn" id="slashBtn">Slash</button>
+            <button class="btn" id="fireBtn">Fire</button>
+            <button class="btn" id="waterBtn">Water</button>
+            <button class="btn" id="healBtn">Heal</button>
+          </div>
+          <div class="hint" style="margin-top:8px;">
+            Tap an enemy on the battlefield to <b>select target</b>. Order: <b>Salem x2</b> → Enemy 1 → Enemy 2.
+          </div>
+
+          <div class="targetRow">
+            <button class="btn" id="t1Btn">Target: Enemy 1</button>
+            <button class="btn" id="t2Btn">Target: Enemy 2</button>
+          </div>
+          <div class="hint" style="margin-top:8px;">
+            Enemy stats are hidden for now (background). You’ll feel them through their attacks.
+          </div>
         </div>
-        <canvas id="c"></canvas>
-      </div>
 
-      <div class="textBox">
-        <div class="msg" id="msg">Loading…</div>
-      </div>
-
-      <div class="cmdRow">
-        <button id="btnSlash">Slash</button>
-        <button id="btnFire">Fire</button>
-      </div>
-
-      <div class="debug" id="debugPanel">
-        <div class="row">
-          <button id="dbgHeal">Heal to Full</button>
-          <button id="dbgGrantXP">Grant +25 XP</button>
-          <button id="dbgSpawnSlime">Spawn: Slime</button>
-          <button id="dbgSpawnBandit">Spawn: Bandit</button>
-          <button id="dbgSpawnWisp">Spawn: Wisp</button>
+        <div>
+          <p class="sectionTitle">Enemy Setup (2 on screen)</p>
+          <div class="row">
+            <div style="flex:1; min-width:140px;">
+              <div class="hint" style="margin-bottom:6px;">Enemy 1</div>
+              <select id="enemy1Sel">
+                <option value="slime" selected>Slime (15 HP)</option>
+                <option value="bandit">Bandit (15 HP)</option>
+                <option value="engorge">ENGORGE (60 HP)</option>
+              </select>
+            </div>
+            <div style="flex:1; min-width:140px;">
+              <div class="hint" style="margin-bottom:6px;">Enemy 2</div>
+              <select id="enemy2Sel">
+                <option value="slime" selected>Slime (15 HP)</option>
+                <option value="bandit">Bandit (15 HP)</option>
+                <option value="engorge">ENGORGE (60 HP)</option>
+              </select>
+            </div>
+          </div>
+          <div class="smallActions" style="margin-top:10px;">
+            <button class="btn" id="applyEnemiesBtn">Apply Enemies</button>
+            <button class="btn" id="startBtn">Start / Continue</button>
+          </div>
         </div>
-        <div class="row">
-          <button class="danger" id="dbgLegendary">Force Legendary Spawn</button>
-          <button id="dbgAutosave">Manual Save Now</button>
+
+        <div>
+          <p class="sectionTitle">Salem Stat Sheet (Visible)</p>
+          <div class="row">
+            <div class="chip" id="turnChip">Turn: —</div>
+            <div class="chip" id="phaseChip">Phase: —</div>
+          </div>
+
+          <div class="statGrid" id="statGrid"></div>
+
+          <div class="hint" style="margin-top:10px;">
+            Heal costs <b>3 mana</b>. Salem starts <b>32 HP</b>, <b>25 mana</b>.
+          </div>
         </div>
       </div>
     </div>
-
-    <div class="foot">Tip: If the screen looks too tall, rotate to landscape. This prototype is intentionally “simple shapes” and will evolve.</div>
   </div>
 
 <script>
 (() => {
-  /********************
-   * Utilities
-   ********************/
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const logEl = document.getElementById('log');
+  const turnChip = document.getElementById('turnChip');
+  const phaseChip = document.getElementById('phaseChip');
+  const statGrid = document.getElementById('statGrid');
+
+  const slashBtn = document.getElementById('slashBtn');
+  const fireBtn  = document.getElementById('fireBtn');
+  const waterBtn = document.getElementById('waterBtn');
+  const healBtn  = document.getElementById('healBtn');
+
+  const enemy1Sel = document.getElementById('enemy1Sel');
+  const enemy2Sel = document.getElementById('enemy2Sel');
+  const applyEnemiesBtn = document.getElementById('applyEnemiesBtn');
+  const startBtn = document.getElementById('startBtn');
+
+  const t1Btn = document.getElementById('t1Btn');
+  const t2Btn = document.getElementById('t2Btn');
+
+  const resetBtn = document.getElementById('resetBtn');
+  const toggleDebugBtn = document.getElementById('toggleDebugBtn');
+
+  // ---------- Utilities ----------
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const lerp = (a,b,t) => a + (b-a)*t;
-  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
-  const easeInOutQuad = t => t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2;
-  const rand = (a,b) => a + Math.random()*(b-a);
-  const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+  const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-  /********************
-   * Save / Load (versioned)
-   ********************/
-  const SAVE_KEY = "ironclad_save";
-  const SAVE_VERSION = "0.1";
-
-  function defaultSave(){
-    return {
-      v: SAVE_VERSION,
-      player: {
-        name: "Kael Varrin",
-        classId: "warrior",
-        lvl: 1,
-        xp: 0,
-        maxHp: 30,
-        hp: 30,
-        stats: { str: 6, sta: 6, skl: 4, res: 0, spd: 4, mind: 3 },
-        look: { head: 1, body: 1, gender: "m", equip: { sword: "rust_sword", shield: "wood_shield", armor: "patch_mail" } }
-      },
-      meta: { lastSaveTs: 0, battlesWon: 0 }
-    };
+  function pushLog(line){
+    logEl.textContent = (line + "\n" + logEl.textContent).slice(0, 1600);
   }
 
-  function migrateSave(s){
-    // Future-proofing: if we bump versions later, do stepwise migrations here.
-    if (!s || typeof s !== "object") return defaultSave();
-    if (!s.v) return defaultSave();
-    if (s.v === SAVE_VERSION) return s;
-
-    // Example placeholder:
-    // if (s.v === "0.0") { ...; s.v = "0.1"; }
-    // For now, safest: preserve what we can.
-    const base = defaultSave();
-    try{
-      base.player = Object.assign(base.player, s.player || {});
-      base.meta = Object.assign(base.meta, s.meta || {});
-    }catch(e){}
-    base.v = SAVE_VERSION;
-    return base;
+  // ---------- Sprites ----------
+  function makeSprite(drawFn, w=32, h=32){
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    const g = off.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    drawFn(g, w, h);
+    return off;
   }
 
-  function loadSave(){
-    try{
-      const raw = localStorage.getItem(SAVE_KEY);
-      if (!raw) return defaultSave();
-      return migrateSave(JSON.parse(raw));
-    }catch(e){
-      return defaultSave();
-    }
-  }
-
-  function saveNow(){
-    try{
-      game.save.meta.lastSaveTs = Date.now();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(game.save));
-      updateSavePill();
-    }catch(e){}
-  }
-
-  function resetSave(){
-    localStorage.removeItem(SAVE_KEY);
-    game.save = defaultSave();
-    applySaveToActors();
-    saveNow();
-    setMessage("Save reset. A Slime appears.");
-    spawnEnemy("slime");
-  }
-
-  /********************
-   * Data Tables
-   ********************/
-  const ENEMIES = {
-    slime:   { name:"Slime",    maxHp:20, atk:4,  spd:3,  type:"ooze",  legendary:false },
-    bandit:  { name:"Bandit",   maxHp:24, atk:5,  spd:5,  type:"human", legendary:false },
-    wisp:    { name:"Wisp",     maxHp:18, atk:6,  spd:6,  type:"spirit",legendary:false },
-    // Example legendary (low spawn chance in real game)
-    voidwisp:{ name:"Void Wisp",maxHp:28, atk:8,  spd:8,  type:"legend",legendary:true }
+  const sprites = {
+    knight: makeSprite((g,w,h) => {
+      g.clearRect(0,0,w,h);
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(8, 25, 16, 4);
+      g.fillStyle = '#50637a';
+      g.fillRect(11, 14, 10, 10);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(12, 8, 8, 6);
+      g.fillStyle = '#2a323c';
+      g.fillRect(12, 11, 8, 1);
+      g.fillStyle = '#6b4b2a';
+      g.fillRect(6, 14, 5, 10);
+      g.fillStyle = '#3a2816';
+      g.fillRect(6, 18, 5, 1);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(22, 13, 2, 11);
+      g.fillStyle = '#2a323c';
+      g.fillRect(21, 13, 4, 1);
+      g.fillStyle = '#2a323c';
+      g.fillRect(11, 24, 4, 2);
+      g.fillRect(17, 24, 4, 2);
+    }),
+    slime: makeSprite((g,w,h) => {
+      g.clearRect(0,0,w,h);
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(8, 24, 16, 4);
+      g.fillStyle = '#6d66ff';
+      g.fillRect(9, 12, 14, 12);
+      g.fillStyle = '#5a54d8';
+      g.fillRect(9, 18, 14, 6);
+      g.fillStyle = '#1b1b2b';
+      g.fillRect(12, 16, 2, 2);
+      g.fillRect(18, 16, 2, 2);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(15, 19, 2, 1);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(24, 10, 1, 1);
+    }),
+    bandit: makeSprite((g,w,h) => {
+      g.clearRect(0,0,w,h);
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(8, 25, 16, 4);
+      g.fillStyle = '#3f2a2a';
+      g.fillRect(10, 12, 12, 13);
+      g.fillStyle = '#2a1b1b';
+      g.fillRect(11, 8, 10, 6);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(13, 10, 6, 2);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(22, 16, 2, 6);
+    }),
+    engorge: makeSprite((g,w,h) => {
+      g.clearRect(0,0,w,h);
+      g.fillStyle = 'rgba(0,0,0,.35)';
+      g.fillRect(6, 25, 20, 4);
+      g.fillStyle = '#7b2fd6';
+      g.fillRect(6, 10, 20, 15);
+      g.fillStyle = '#5e1fb0';
+      g.fillRect(6, 18, 20, 7);
+      g.fillStyle = '#12081e';
+      g.fillRect(11, 16, 2, 2);
+      g.fillRect(19, 16, 2, 2);
+      g.fillStyle = '#cfd6df';
+      g.fillRect(14, 20, 4, 1);
+    }),
+    tree: makeSprite((g,w,h) => {
+      g.clearRect(0,0,w,h);
+      g.fillStyle = '#5b3a1e';
+      g.fillRect(14, 16, 4, 12);
+      g.fillStyle = '#2f7a3b';
+      g.fillRect(8, 8, 16, 10);
+      g.fillStyle = '#255f2e';
+      g.fillRect(10, 10, 12, 8);
+    })
   };
 
-  const SKILLS = {
-    slash: { name:"Slash", kind:"melee", power: 7, mp:0 },
-    fire:  { name:"Fire",  kind:"magic", power: 8, mp:0 }
-  };
-
-  /********************
-   * Canvas Setup
-   ********************/
-  const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d");
-
-  function resize(){
-    // Keep a stable “game resolution” while scaling for device.
-    // We prefer wide. If portrait, still works but letterboxes.
-    const shell = canvas.parentElement.getBoundingClientRect();
-    const targetW = Math.floor(shell.width);
-    const targetH = Math.floor(shell.height);
-
-    // Internal resolution tuned for crisp pixel blocks
-    // Maintain 16:9-ish internal. Fit inside shell.
-    const aspect = 16/9;
-    let w = targetW;
-    let h = Math.floor(w/aspect);
-    if (h > targetH){ h = targetH; w = Math.floor(h*aspect); }
-
-    canvas.width = Math.max(640, w*2);   // higher internal for clean
-    canvas.height = Math.max(360, h*2);
-  }
-  window.addEventListener("resize", resize, {passive:true});
-  resize();
-
-  /********************
-   * Engine Core
-   ********************/
-  const game = {
-    state: "battle", // for this prototype
-    save: loadSave(),
+  // ---------- Game State ----------
+  const state = {
     debug: false,
-    time: { t:0, dt:0 },
-    queue: [],       // action queue (animations + text)
-    textQueue: [],   // message pacing
-    busy: false
+    running: false,
+    waitingForPlayer: false,
+    busy: false,
+    frame: 0,
+
+    selectedTarget: 0, // 0 = enemy1, 1 = enemy2
+
+    salem: {
+      name: "Salem The Pib cox",
+      level: 7,
+
+      hp: 32, hpMax: 32,
+      mp: 25, mpMax: 25,
+
+      // "real stat sheet" (these are editable later; for now hard-coded)
+      str: 10,
+      dex: 8,
+      int: 9,
+      vit: 11,
+      def: 6,
+      res: 5,
+      crit: 8,      // %
+      haste: 0,     // later
+    },
+
+    enemies: [],
+
+    // 0: Salem action 1, 1: Salem action 2, 2: enemy1, 3: enemy2
+    turnIndex: 0,
+
+    anim: null,
+
+    // hitboxes updated every render
+    hitboxes: {
+      e1: null,
+      e2: null
+    }
   };
 
-  // Actors (simple, but scalable)
-  const actors = {
-    player: makePlayerActor(),
-    enemy:  makeEnemyActor("slime")
-  };
+  function derivedStats(){
+    const s = state.salem;
 
-  function makePlayerActor(){
-    return {
-      id:"player",
-      name:"Kael Varrin",
-      hp: 30, maxHp:30,
-      lvl:1, xp:0,
-      stats: { str:6, sta:6, skl:4, res:0, spd:4, mind:3 },
-      // Position in arena (slight top-down camera)
-      pos: { x: 0.28, y: 0.62 }, // normalized
-      // Animation offsets
-      anim: {
-        bob: 0,
-        ox: 0, oy: 0,
-        squash: 1,
-        flash: 0,
-        facing: 1 // 1 right, -1 left
-      },
-      look: { head:1, body:1, gender:"m", equip: { sword:"rust_sword", shield:"wood_shield", armor:"patch_mail" } }
+    // simple, consistent, and tweakable:
+    const atk = Math.round(4 + s.str * 0.8);
+    const spAtk = Math.round(4 + s.int * 0.8);
+    const armor = Math.round(2 + s.def * 0.9);
+    const ward = Math.round(2 + s.res * 0.9);
+
+    return { atk, spAtk, armor, ward };
+  }
+
+  function renderStatSheet(){
+    const s = state.salem;
+    const d = derivedStats();
+
+    const items = [
+      { k:"Name", v:s.name },
+      { k:"Level", v:String(s.level) },
+      { k:"HP", v:`${s.hp}/${s.hpMax}` },
+      { k:"MP", v:`${s.mp}/${s.mpMax}` },
+
+      { k:"STR", v:String(s.str) },
+      { k:"DEX", v:String(s.dex) },
+      { k:"INT", v:String(s.int) },
+      { k:"VIT", v:String(s.vit) },
+
+      { k:"DEF", v:String(s.def) },
+      { k:"RES", v:String(s.res) },
+      { k:"Crit", v:`${s.crit}%` },
+      { k:"Haste", v:`${s.haste}%` },
+
+      { k:"ATK", v:String(d.atk) },
+      { k:"SP ATK", v:String(d.spAtk) },
+      { k:"Armor", v:String(d.armor) },
+      { k:"Ward", v:String(d.ward) }
+    ];
+
+    statGrid.innerHTML = items.map(it => `
+      <div class="stat">
+        <div class="k">${it.k}</div>
+        <div class="v">${escapeHtml(it.v)}</div>
+      </div>
+    `).join("");
+  }
+
+  function escapeHtml(str){
+    return String(str)
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#39;");
+  }
+
+  function makeEnemy(kind){
+    if(kind === 'slime'){
+      return { kind:'slime', name:'Slime', hp:15, hpMax:15, alive:true, ai:'auto', cast:0 };
+    }
+    if(kind === 'bandit'){
+      return { kind:'bandit', name:'Bandit', hp:15, hpMax:15, alive:true, ai:'auto', cast:0 };
+    }
+    return { kind:'engorge', name:'ENGORGE', hp:60, hpMax:60, alive:true, ai:'engorge', cast:0 };
+  }
+
+  function applyEnemies(){
+    state.enemies = [ makeEnemy(enemy1Sel.value), makeEnemy(enemy2Sel.value) ];
+    state.selectedTarget = 0;
+    pushLog(`Two enemies ready. (Stats hidden)`);
+    pushLog(`Tap an enemy to target. Current target: Enemy 1.`);
+    state.turnIndex = 0;
+    state.running = false;
+    state.waitingForPlayer = true;
+    updateUI();
+    render();
+  }
+
+  // ---------- Layout ----------
+  function layout(){
+    const W = canvas.width, H = canvas.height;
+    const field = {
+      x: W*0.08,
+      y: H*0.18,
+      w: W*0.84,
+      h: H*0.46,
+      topInset: W*0.09
     };
+
+    const salemPos = { x: field.x + field.w*0.30, y: field.y + field.h*0.64, scale: 3.0 };
+
+    const e1Pos = { x: field.x + field.w*0.70, y: field.y + field.h*0.45, scale: state.enemies[0]?.kind === 'engorge' ? 3.6 : 3.0 };
+    const e2Pos = { x: field.x + field.w*0.78, y: field.y + field.h*0.66, scale: state.enemies[1]?.kind === 'engorge' ? 3.6 : 3.0 };
+
+    // bring HP/MP closer to Salem (center-lower near character)
+    const hud = { x: field.x + field.w*0.16, y: field.y + field.h*0.73, w: field.w*0.48, h: 74 };
+
+    return { field, salemPos, e1Pos, e2Pos, hud, W, H };
   }
 
-  function makeEnemyActor(type){
-    const d = ENEMIES[type];
-    return {
-      id:"enemy",
-      type,
-      name: d.name,
-      hp: d.maxHp, maxHp: d.maxHp,
-      atk: d.atk, spd: d.spd,
-      legendary: d.legendary,
-      pos: { x: 0.72, y: 0.45 },
-      anim: {
-        bob: 0,
-        ox: 0, oy: 0,
-        squash: 1,
-        flash: 0,
-        wobble: 0
-      }
-    };
-  }
-
-  function applySaveToActors(){
-    const s = game.save.player;
-    actors.player.name = s.name;
-    actors.player.lvl = s.lvl;
-    actors.player.xp  = s.xp;
-    actors.player.maxHp = s.maxHp;
-    actors.player.hp = clamp(s.hp, 0, s.maxHp);
-    actors.player.stats = Object.assign({}, s.stats);
-    actors.player.look = JSON.parse(JSON.stringify(s.look));
-  }
-  applySaveToActors();
-
-  function writeActorsToSave(){
-    const p = game.save.player;
-    p.lvl = actors.player.lvl;
-    p.xp  = actors.player.xp;
-    p.maxHp = actors.player.maxHp;
-    p.hp = actors.player.hp;
-    p.stats = Object.assign({}, actors.player.stats);
-    p.look = JSON.parse(JSON.stringify(actors.player.look));
-  }
-
-  /********************
-   * UI
-   ********************/
-  const msgEl = document.getElementById("msg");
-  const hudLeft = document.getElementById("hudLeft");
-  const hudRight = document.getElementById("hudRight");
-  const savePill = document.getElementById("savePill");
-
-  const btnSlash = document.getElementById("btnSlash");
-  const btnFire  = document.getElementById("btnFire");
-  const btnDebug = document.getElementById("btnDebug");
-  const debugPanel = document.getElementById("debugPanel");
-  const btnReset = document.getElementById("btnReset");
-
-  function setMessage(text){
-    msgEl.textContent = text;
-  }
-
-  function updateHUD(){
-    hudLeft.textContent  = `${actors.player.name} • HP: ${actors.player.hp}/${actors.player.maxHp} • Lvl: ${actors.player.lvl} • XP: ${actors.player.xp}`;
-    const e = actors.enemy;
-    hudRight.textContent = `${e.legendary ? "★ " : ""}${e.name} • HP: ${e.hp}/${e.maxHp}`;
-  }
-
-  function updateSavePill(){
-    const ts = game.save.meta.lastSaveTs || 0;
-    if (!ts) { savePill.textContent = "Save: —"; return; }
-    const d = new Date(ts);
-    const hh = String(d.getHours()).padStart(2,"0");
-    const mm = String(d.getMinutes()).padStart(2,"0");
-    savePill.textContent = `Save: ${hh}:${mm}`;
-  }
-  updateSavePill();
-
-  function setBusy(b){
-    game.busy = b;
-    btnSlash.disabled = b;
-    btnFire.disabled = b;
-    btnSlash.style.opacity = b ? 0.6 : 1;
-    btnFire.style.opacity  = b ? 0.6 : 1;
-  }
-
-  btnDebug.addEventListener("click", () => {
-    game.debug = !game.debug;
-    btnDebug.textContent = `Debug: ${game.debug ? "ON" : "OFF"}`;
-    debugPanel.classList.toggle("on", game.debug);
-  });
-
-  btnReset.addEventListener("click", resetSave);
-
-  // Debug actions
-  document.getElementById("dbgHeal").addEventListener("click", () => {
-    actors.player.hp = actors.player.maxHp;
-    updateHUD();
-    setMessage("Debug: Healed to full.");
-    writeActorsToSave(); saveNow();
-  });
-  document.getElementById("dbgGrantXP").addEventListener("click", () => {
-    grantXP(25);
-    updateHUD();
-    setMessage("Debug: +25 XP granted.");
-    writeActorsToSave(); saveNow();
-  });
-  document.getElementById("dbgSpawnSlime").addEventListener("click", () => spawnEnemy("slime"));
-  document.getElementById("dbgSpawnBandit").addEventListener("click", () => spawnEnemy("bandit"));
-  document.getElementById("dbgSpawnWisp").addEventListener("click", () => spawnEnemy("wisp"));
-  document.getElementById("dbgLegendary").addEventListener("click", () => spawnEnemy("voidwisp"));
-  document.getElementById("dbgAutosave").addEventListener("click", () => { writeActorsToSave(); saveNow(); setMessage("Saved."); });
-
-  /********************
-   * Battle Flow
-   ********************/
-  function spawnEnemy(type){
-    if (!ENEMIES[type]) type = "slime";
-    actors.enemy = makeEnemyActor(type);
-    updateHUD();
-    setMessage(`${actors.enemy.legendary ? "A LEGENDARY " : "A "} ${actors.enemy.name.toUpperCase()} appears.`);
-    setBusy(false);
-  }
-
-  function calcDamage(attacker, defender, skill){
-    // Simple, readable formula (will change later)
-    const base = skill.power;
-    const str = attacker.stats?.str ?? attacker.atk ?? 5;
-    const mind = attacker.stats?.mind ?? 3;
-    const variance = rand(0.85, 1.15);
-    let dmg = base;
-
-    if (skill.kind === "melee") dmg += Math.floor(str * 0.9);
-    if (skill.kind === "magic") dmg += Math.floor(mind * 1.1);
-
-    dmg = Math.floor(dmg * variance);
-    dmg = clamp(dmg, 1, 999);
-    return dmg;
-  }
-
-  function enemyAttack(){
-    const e = actors.enemy;
-    const p = actors.player;
-    const dmg = clamp(Math.floor(e.atk * rand(0.9, 1.2)), 1, 999);
-    return { name: "Tackle", dmg };
-  }
-
-  function grantXP(amount){
-    const p = actors.player;
-    p.xp += amount;
-    // Level curve (simple)
-    while (p.xp >= xpToNext(p.lvl)){
-      p.xp -= xpToNext(p.lvl);
-      p.lvl += 1;
-      // small growth
-      p.maxHp += 3;
-      p.hp = p.maxHp;
-      p.stats.str += 1;
-      p.stats.sta += 1;
-      p.stats.skl += 1;
-      p.stats.spd += 1;
-      p.stats.mind += 1;
-      // (res will matter later)
-      queueText(`Kael reached Level ${p.lvl}!`);
-    }
-  }
-
-  function xpToNext(lvl){
-    return 20 + (lvl-1)*10;
-  }
-
-  function queueText(text, ms=700){
-    game.queue.push({ type:"text", text, ms });
-  }
-
-  function queueAnim(fn, ms){
-    game.queue.push({ type:"anim", fn, ms });
-  }
-
-  function runQueue(){
-    if (game.queue.length === 0){
-      setBusy(false);
-      updateHUD();
-      return;
-    }
-    setBusy(true);
-    const step = game.queue.shift();
-    if (step.type === "text"){
-      setMessage(step.text);
-      updateHUD();
-      setTimeout(runQueue, step.ms);
-    } else if (step.type === "anim"){
-      const start = performance.now();
-      const dur = step.ms;
-      function tick(now){
-        const t = clamp((now - start)/dur, 0, 1);
-        step.fn(t);
-        if (t < 1) requestAnimationFrame(tick);
-        else setTimeout(runQueue, 40);
-      }
-      requestAnimationFrame(tick);
-    }
-  }
-
-  function endBattle(victory){
-    if (victory){
-      game.save.meta.battlesWon = (game.save.meta.battlesWon || 0) + 1;
-      // basic loot + xp
-      const xp = actors.enemy.legendary ? 35 : 15;
-      queueText(`${actors.enemy.name} was defeated!`);
-      queueText(`Kael gained ${xp} XP.`);
-      grantXP(xp);
-      // autosave after battle
-      queueText("Autosaving…", 400);
-      game.queue.push({
-        type:"anim",
-        ms: 250,
-        fn: (t) => {
-          // tiny flash to indicate save
-          actors.player.anim.flash = 0.25*(1-t);
-          if (t >= 1){
-            writeActorsToSave();
-            saveNow();
-            actors.player.anim.flash = 0;
-          }
-        }
-      });
-      queueText("A Slime appears.", 550);
-      // spawn new enemy at the end
-      game.queue.push({
-        type:"anim",
-        ms: 10,
-        fn: () => spawnEnemy(rollEncounter())
-      });
-    } else {
-      queueText(`Kael was defeated…`, 900);
-      queueText(`Autosaving…`, 400);
-      game.queue.push({
-        type:"anim",
-        ms: 250,
-        fn: (t) => {
-          actors.player.anim.flash = 0.25*(1-t);
-          if (t >= 1){
-            // revive for prototype
-            actors.player.hp = actors.player.maxHp;
-            writeActorsToSave();
-            saveNow();
-            actors.player.anim.flash = 0;
-          }
-        }
-      });
-      queueText("Kael stands back up. A Slime appears.", 650);
-      game.queue.push({ type:"anim", ms:10, fn:()=> spawnEnemy("slime") });
-    }
-  }
-
-  function rollEncounter(){
-    // Placeholder “legendary chance”
-    const roll = Math.random();
-    if (roll < 0.03) return "voidwisp";
-    return pick(["slime","slime","bandit","wisp"]);
-  }
-
-  function playerUseSkill(skillId){
-    if (game.busy) return;
-    const skill = SKILLS[skillId];
-    if (!skill) return;
-
-    const p = actors.player;
-    const e = actors.enemy;
-
-    // Turn order (simple): higher spd goes first; ties favor player
-    const playerFirst = (p.stats.spd >= e.spd);
-
-    game.queue.length = 0;
-
-    if (playerFirst){
-      doPlayerTurn(skillId);
-      // If enemy survives, enemy turn
-      game.queue.push({
-        type:"anim", ms:10, fn:()=> {
-          if (actors.enemy.hp > 0) doEnemyTurn();
-          else endBattle(true);
-        }
-      });
-    } else {
-      queueText(`${e.name} moves first!`, 650);
-      doEnemyTurn();
-      game.queue.push({
-        type:"anim", ms:10, fn:()=> {
-          if (actors.player.hp > 0) doPlayerTurn(skillId);
-          else endBattle(false);
-        }
-      });
-    }
-
-    // Finish
-    game.queue.push({
-      type:"anim", ms:10, fn:()=> {
-        if (actors.enemy.hp <= 0) endBattle(true);
-        else if (actors.player.hp <= 0) endBattle(false);
-      }
-    });
-
-    runQueue();
-  }
-
-  function doPlayerTurn(skillId){
-    const skill = SKILLS[skillId];
-    const p = actors.player;
-    const e = actors.enemy;
-
-    queueText(`${p.name} used ${skill.name}!`, 650);
-
-    if (skillId === "slash"){
-      // Lunge forward + hit spark + enemy squish
-      queueAnim((t)=> {
-        const tt = easeOutCubic(t);
-        p.anim.ox = lerp(0, 120, tt);
-        p.anim.oy = lerp(0, -10, tt);
-      }, 180);
-
-      queueAnim((t)=> {
-        // swing moment: spawn spark + enemy hit response
-        const tt = easeInOutQuad(t);
-        // sword “arc” illusion: brief wobble
-        p.anim.oy = -12 + Math.sin(tt*Math.PI)*6;
-        // enemy reacts
-        e.anim.flash = 0.35 * (1-tt);
-        e.anim.squash = lerp(1, 0.78, Math.sin(tt*Math.PI));
-        e.anim.ox = lerp(0, 14, Math.sin(tt*Math.PI));
-      }, 180);
-
-      queueAnim((t)=> {
-        const tt = easeInOutQuad(t);
-        p.anim.ox = lerp(120, 0, tt);
-        p.anim.oy = lerp(-10, 0, tt);
-        e.anim.ox = lerp(14, 0, tt);
-        e.anim.squash = lerp(0.78, 1, tt);
-      }, 220);
-
-      // Apply damage after the strike moment
-      game.queue.push({
-        type:"anim", ms:10, fn:()=> {
-          const dmg = calcDamage(p, e, skill);
-          e.hp = clamp(e.hp - dmg, 0, e.maxHp);
-          updateHUD();
-          queueText(`It dealt ${dmg} damage.`, 650);
-        }
-      });
-
-    } else if (skillId === "fire"){
-      // Cast + projectile + impact
-      queueAnim((t)=> {
-        const tt = easeInOutQuad(t);
-        p.anim.oy = lerp(0, -10, Math.sin(tt*Math.PI));
-        p.anim.flash = 0.18 * Math.sin(tt*Math.PI);
-      }, 220);
-
-      // Projectile state
-      const proj = { on:true, x:0.36, y:0.56, r:0 };
-      game.queue.push({
-        type:"anim",
-        ms: 360,
-        fn: (t)=>{
-          const tt = easeOutCubic(t);
-          proj.x = lerp(0.38, 0.68, tt);
-          proj.y = lerp(0.56, 0.46, tt);
-          proj.r = tt*8;
-          effects.fireball = proj;
-          if (t>=1) effects.fireball = null;
-        }
-      });
-
-      queueAnim((t)=> {
-        const tt = easeInOutQuad(t);
-        e.anim.flash = 0.5 * (1-tt);
-        e.anim.squash = lerp(1, 0.84, Math.sin(tt*Math.PI));
-        e.anim.oy = lerp(0, -10, Math.sin(tt*Math.PI));
-      }, 220);
-
-      game.queue.push({
-        type:"anim", ms:10, fn:()=> {
-          const dmg = calcDamage(p, e, skill);
-          e.hp = clamp(e.hp - dmg, 0, e.maxHp);
-          updateHUD();
-          queueText(`The flames dealt ${dmg} damage.`, 650);
-        }
-      });
-    }
-  }
-
-  function doEnemyTurn(){
-    const e = actors.enemy;
-    const p = actors.player;
-    const atk = enemyAttack();
-
-    queueText(`${e.name} used ${atk.name}!`, 650);
-
-    // Enemy “hop” forward and bonk
-    queueAnim((t)=> {
-      const tt = easeOutCubic(t);
-      e.anim.ox = lerp(0, -90, tt);
-      e.anim.oy = lerp(0, 12, tt);
-      e.anim.wobble = Math.sin(tt*Math.PI)*0.6;
-    }, 200);
-
-    queueAnim((t)=> {
-      const tt = easeInOutQuad(t);
-      // hit
-      p.anim.flash = 0.45*(1-tt);
-      p.anim.squash = lerp(1, 0.82, Math.sin(tt*Math.PI));
-      p.anim.ox = lerp(0, -12, Math.sin(tt*Math.PI));
-    }, 180);
-
-    queueAnim((t)=> {
-      const tt = easeInOutQuad(t);
-      e.anim.ox = lerp(-90, 0, tt);
-      e.anim.oy = lerp(12, 0, tt);
-      p.anim.ox = lerp(-12, 0, tt);
-      p.anim.squash = lerp(0.82, 1, tt);
-      e.anim.wobble = (1-tt)*0.4;
-    }, 220);
-
-    game.queue.push({
-      type:"anim", ms:10, fn:()=> {
-        p.hp = clamp(p.hp - atk.dmg, 0, p.maxHp);
-        updateHUD();
-        queueText(`Kael took ${atk.dmg} damage.`, 650);
-      }
-    });
-  }
-
-  btnSlash.addEventListener("click", () => playerUseSkill("slash"));
-  btnFire.addEventListener("click", () => playerUseSkill("fire"));
-
-  /********************
-   * Visuals (chunky pixel silhouette + arena)
-   ********************/
-  const effects = { fireball: null };
-
-  function drawArena(w,h){
-    // Slight top-down “arena plate”
-    // Background gradient
-    const g = ctx.createLinearGradient(0,0,0,h);
-    g.addColorStop(0, "#0f0f16");
-    g.addColorStop(1, "#0a0a0f");
-    ctx.fillStyle = g;
-    ctx.fillRect(0,0,w,h);
-
-    // Distant haze
-    ctx.fillStyle = "rgba(255,255,255,0.03)";
-    ctx.fillRect(0,0,w,h*0.12);
-
-    // Ground ellipse (arena)
-    const cx = w*0.50;
-    const cy = h*0.66;
-    const rx = w*0.44;
-    const ry = h*0.18;
-
-    // Shadow ring
+  // ---------- Drawing ----------
+  function drawRoundedRect(x,y,w,h,r){
     ctx.beginPath();
-    ctx.ellipse(cx, cy+8, rx, ry, 0, 0, Math.PI*2);
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function drawBar(x,y,w,h, pct, label, color){
+    ctx.fillStyle = 'rgba(255,255,255,.10)';
+    drawRoundedRect(x,y,w,h,10);
     ctx.fill();
 
-    // Main ground
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
-    ctx.fillStyle = "#141420";
+    const fw = Math.max(0, Math.floor((w-6) * pct));
+    ctx.fillStyle = color;
+    drawRoundedRect(x+3,y+3, fw, h-6, 9);
     ctx.fill();
 
-    // Ground highlight
-    ctx.beginPath();
-    ctx.ellipse(cx, cy-6, rx*0.88, ry*0.70, 0, 0, Math.PI*2);
-    ctx.fillStyle = "rgba(255,255,255,0.03)";
-    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    ctx.font = '700 14px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillText(label, x+10, y + h - 10);
+  }
 
-    // “Tile-ish” marks
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  function drawSprite(sprite, x, y, scale, anchorX=0.5, anchorY=1.0){
+    ctx.imageSmoothingEnabled = false;
+    const w = sprite.width * scale;
+    const h = sprite.height * scale;
+    ctx.drawImage(sprite, x - w*anchorX, y - h*anchorY, w, h);
+    return { x: x - w*anchorX, y: y - h*anchorY, w, h };
+  }
+
+  function drawSpeechBubble(x,y,text){
+    ctx.font = '700 14px ui-monospace, Menlo, Consolas, monospace';
+    const pad = 10;
+    const w = ctx.measureText(text).width + pad*2;
+    const h = 34;
+    const bx = x - w/2;
+    const by = y - 80;
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.strokeStyle = 'rgba(255,255,255,.16)';
     ctx.lineWidth = 2;
-    for (let i=0;i<7;i++){
-      const t = i/6;
+    drawRoundedRect(bx,by,w,h,12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    ctx.fillText(text, bx+pad, by+22);
+
+    ctx.beginPath();
+    ctx.moveTo(x-8, by+h);
+    ctx.lineTo(x, by+h+10);
+    ctx.lineTo(x+8, by+h);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.10)';
+    ctx.stroke();
+  }
+
+  function drawField(field){
+    const {x,y,w,h,topInset} = field;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x + topInset, y);
+    ctx.lineTo(x + w - topInset, y);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+
+    const grad = ctx.createLinearGradient(0, y, 0, y+h);
+    grad.addColorStop(0, 'rgba(70,180,90,.55)');
+    grad.addColorStop(1, 'rgba(30,120,60,.35)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,.08)';
+    ctx.lineWidth = 2;
+
+    for(let i=1;i<=8;i++){
+      const t = i/9;
+      const yy = y + t*h;
+      const leftX  = x + (1-t)*topInset;
+      const rightX = x + w - (1-t)*topInset;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, rx*(0.25 + t*0.70), ry*(0.25 + t*0.70), 0, 0, Math.PI*2);
+      ctx.moveTo(leftX, yy);
+      ctx.lineTo(rightX, yy);
       ctx.stroke();
     }
-  }
 
-  function worldToScreen(nx, ny, w, h){
-    // Map normalized arena coords into screen coords with perspective feel.
-    // nx/ny are roughly within [0..1]
-    const baseX = nx * w;
-    const baseY = ny * h;
-    return { x: baseX, y: baseY };
-  }
+    for(let i=1;i<=10;i++){
+      const t = i/11;
+      const topX = (x + topInset) + t*(w - topInset*2);
+      const botX = x + t*w;
+      ctx.beginPath();
+      ctx.moveTo(topX, y);
+      ctx.lineTo(botX, y+h);
+      ctx.stroke();
+    }
 
-  function drawPixelRect(x,y,w,h, color){
-    ctx.fillStyle = color;
-    ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-  }
-
-  function drawHitSpark(x,y, scale){
-    const s = 6*scale;
-    ctx.save();
-    ctx.translate(x,y);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillRect(-s*0.5, -s*2.0, s, s*4.0);
-    ctx.fillRect(-s*2.0, -s*0.5, s*4.0, s);
-    ctx.fillStyle = "rgba(255,220,120,0.85)";
-    ctx.fillRect(-s*0.5, -s*1.5, s, s*3.0);
-    ctx.fillRect(-s*1.5, -s*0.5, s*3.0, s);
+    ctx.strokeStyle = 'rgba(255,255,255,.20)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
     ctx.restore();
   }
 
-  function drawPlayer(actor, w,h){
-    const p = actor;
-    const s = Math.min(w,h);
-    const base = worldToScreen(p.pos.x, p.pos.y, w,h);
+  function drawBackgroundTrees(field){
+    const {x,y,w,topInset} = field;
+    const t1x = x + topInset + w*0.15;
+    const t2x = x + topInset + w*0.78;
+    const ty  = y - 10;
+    drawSprite(sprites.tree, t1x, ty+58, 2.6, 0.5, 1.0);
+    drawSprite(sprites.tree, t2x, ty+56, 2.9, 0.5, 1.0);
+  }
 
-    // Pixel scale
-    const px = Math.floor(s * 0.012); // “chunky”
-    const size = px * 22;
-
-    const ox = p.anim.ox;
-    const oy = p.anim.oy + Math.sin(game.time.t*0.003)*2; // subtle idle
-    const squash = p.anim.squash || 1;
-
-    const x = base.x - size*0.5 + ox;
-    const y = base.y - size + oy;
-
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath();
-    ctx.ellipse(base.x + ox, base.y + 10 + oy, size*0.32, size*0.10, 0, 0, Math.PI*2);
+  function drawHUD(hud){
+    const {x,y,w,h} = hud;
+    ctx.fillStyle = 'rgba(0,0,0,.30)';
+    ctx.strokeStyle = 'rgba(255,255,255,.16)';
+    ctx.lineWidth = 2;
+    drawRoundedRect(x,y,w,h,16);
     ctx.fill();
+    ctx.stroke();
 
-    // Flash overlay
-    const flash = p.anim.flash || 0;
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    ctx.font = '800 16px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillText(state.salem.name, x+14, y+22);
 
-    // Colors (simple palette)
-    const armor = "#2f5b8a";
-    const armor2 = "#244663";
-    const skin = "#d6b38a";
-    const steel = "#cfd7e6";
-    const dark = "#0f1016";
-    const shield = "#6b4a2c";
-    const wood = "#8a5a34";
+    const hpPct = state.salem.hp / state.salem.hpMax;
+    const mpPct = state.salem.mp / state.salem.mpMax;
 
-    // Gender/body variant (very simple for now)
-    const bodyW = (p.look.gender === "f") ? (px*10) : (px*11);
-    const bodyH = (p.look.gender === "f") ? (px*12) : (px*12);
+    drawBar(x+14, y+30, w-28, 18, hpPct, `HP: ${state.salem.hp}/${state.salem.hpMax}`, 'rgba(255,110,110,.90)');
+    drawBar(x+14, y+52, w-28, 18, mpPct, `MP: ${state.salem.mp}/${state.salem.mpMax}`, 'rgba(130,170,255,.90)');
+  }
 
-    // Body (torso)
-    drawPixelRect(x + px*6, y + px*9, bodyW, bodyH*squash, armor);
-    drawPixelRect(x + px*7, y + px*10, bodyW-2*px, (bodyH-2*px)*squash, armor2);
+  function drawTargetRing(x,y,scale,isAlive){
+    if(!isAlive) return;
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = 'rgba(170,140,255,.90)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(x, y+10, 52*scale/3, 18*scale/3, 0, 0, Math.PI*2);
+    ctx.stroke();
 
-    // Head/helmet
-    const headType = p.look.head || 1;
-    // base helmet
-    drawPixelRect(x + px*8, y + px*3, px*7, px*6, steel);
-    // visor line
-    drawPixelRect(x + px*8, y + px*6, px*7, px*1, dark);
-    // headType variation
-    if (headType === 2){
-      // plume
-      drawPixelRect(x + px*11, y + px*1, px*1, px*2, "#a23b3b");
-      drawPixelRect(x + px*12, y + px*1, px*1, px*3, "#a23b3b");
-    } else if (headType === 3){
-      // horn nub
-      drawPixelRect(x + px*7, y + px*4, px*1, px*2, "#b9c2d4");
-      drawPixelRect(x + px*15, y + px*4, px*1, px*2, "#b9c2d4");
-    } else if (headType === 4){
-      // hood-ish wrap
-      drawPixelRect(x + px*8, y + px*3, px*7, px*2, "#3a2f4a");
-      drawPixelRect(x + px*8, y + px*5, px*1, px*4, "#3a2f4a");
-      drawPixelRect(x + px*14, y + px*5, px*1, px*4, "#3a2f4a");
-    }
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = 'rgba(255,255,255,.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y+10, 62*scale/3, 24*scale/3, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
-    // Arms
-    drawPixelRect(x + px*5, y + px*10, px*2, px*7*squash, armor2); // left arm
-    drawPixelRect(x + px*16, y + px*10, px*2, px*7*squash, armor2); // right arm
+  // ---------- Combat ----------
+  function aliveEnemies(){
+    return state.enemies.map((e,i)=>({e,i})).filter(o => o.e.alive && o.e.hp > 0);
+  }
 
-    // Shield (front/left)
-    drawPixelRect(x + px*2, y + px*11, px*4, px*8*squash, shield);
-    drawPixelRect(x + px*3, y + px*12, px*2, px*6*squash, wood);
+  function pickTargetIndex(){
+    // target selected if alive; otherwise first alive
+    const t = state.selectedTarget;
+    const e = state.enemies[t];
+    if(e && e.alive && e.hp > 0) return t;
+    const alive = aliveEnemies();
+    return alive.length ? alive[0].i : -1;
+  }
 
-    // Sword (right)
-    drawPixelRect(x + px*19, y + px*11, px*1, px*8*squash, steel);
-    drawPixelRect(x + px*18, y + px*18, px*3, px*1, "#a98b5a");
-
-    // Legs
-    drawPixelRect(x + px*8, y + px*21, px*3, px*4, armor2);
-    drawPixelRect(x + px*12, y + px*21, px*3, px*4, armor2);
-
-    // Flash overlay
-    if (flash > 0){
-      ctx.fillStyle = `rgba(255,255,255,${flash})`;
-      ctx.fillRect(x + px*2, y + px*3, px*20, px*22);
+  function damageEnemy(i, dmg){
+    const e = state.enemies[i];
+    if(!e || !e.alive) return;
+    e.hp = Math.max(0, e.hp - dmg);
+    if(e.hp <= 0){
+      e.alive = false;
+      pushLog(`${e.name} is defeated.`);
     }
   }
 
-  function drawEnemy(actor, w,h){
-    const e = actor;
-    const s = Math.min(w,h);
-    const base = worldToScreen(e.pos.x, e.pos.y, w,h);
+  function damageSalem(dmg){
+    state.salem.hp = Math.max(0, state.salem.hp - dmg);
+  }
 
-    const px = Math.floor(s * 0.012);
-    const size = px * 20;
+  function checkEnd(){
+    if(state.salem.hp <= 0){
+      pushLog("Salem falls. (Battle Over)");
+      state.running = false;
+      state.waitingForPlayer = false;
+      updateUI();
+      return true;
+    }
+    if(aliveEnemies().length === 0){
+      pushLog("Victory. (All enemies defeated)");
+      state.running = false;
+      state.waitingForPlayer = false;
+      updateUI();
+      return true;
+    }
+    return false;
+  }
 
-    const ox = e.anim.ox || 0;
-    const oy = (e.anim.oy || 0) + Math.sin(game.time.t*0.004)*3;
-    const squash = e.anim.squash || 1;
-    const flash = e.anim.flash || 0;
-    const wobble = e.anim.wobble || 0;
+  function currentActorLabel(){
+    const t = state.turnIndex % 4;
+    if(t === 0) return "Salem (Action 1)";
+    if(t === 1) return "Salem (Action 2)";
+    if(t === 2) return state.enemies[0]?.alive ? `${state.enemies[0].name}` : "Enemy 1 (Down)";
+    return state.enemies[1]?.alive ? `${state.enemies[1].name}` : "Enemy 2 (Down)";
+  }
 
-    const x = base.x - size*0.5 + ox;
-    const y = base.y - size*0.8 + oy;
+  function setTurnWaiting(){
+    state.waitingForPlayer = ((state.turnIndex % 4) === 0) || ((state.turnIndex % 4) === 1);
+    updateUI();
+  }
 
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath();
-    ctx.ellipse(base.x + ox, base.y + 12 + oy, size*0.30, size*0.10, 0, 0, Math.PI*2);
-    ctx.fill();
+  function advanceTurn(){
+    state.turnIndex = (state.turnIndex + 1) % 4;
 
-    // Color by type
-    let c1 = "#38d26a";
-    let c2 = "#2aa655";
-    if (e.type === "wisp"){ c1 = "#9ad8ff"; c2 = "#4fb6ff"; }
-    if (e.type === "bandit"){ c1 = "#d6c07a"; c2 = "#b79c4f"; }
-    if (e.type === "voidwisp"){ c1 = "#b287ff"; c2 = "#6f3bd6"; }
-
-    // Slime-ish blob for ooze, otherwise simple blocky humanoid
-    if (e.type === "slime" || e.type === "voidwisp" || e.type === "wisp"){
-      // blob (pixel-ish ellipse)
-      const bw = size;
-      const bh = size * 0.70 * squash;
-      ctx.save();
-      ctx.translate(x + bw/2, y + bh/2);
-      ctx.rotate(wobble*0.08);
-
-      // main
-      ctx.fillStyle = c1;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, bw*0.42, bh*0.42, 0, 0, Math.PI*2);
-      ctx.fill();
-
-      // inner
-      ctx.fillStyle = c2;
-      ctx.beginPath();
-      ctx.ellipse(-bw*0.08, -bh*0.08, bw*0.30, bh*0.28, 0, 0, Math.PI*2);
-      ctx.fill();
-
-      // eyes
-      ctx.fillStyle = "#0f1016";
-      ctx.fillRect(-bw*0.12, -bh*0.05, bw*0.06, bh*0.10);
-      ctx.fillRect( bw*0.06, -bh*0.05, bw*0.06, bh*0.10);
-
-      // shine
-      ctx.fillStyle = "rgba(255,255,255,0.22)";
-      ctx.beginPath();
-      ctx.ellipse(-bw*0.12, -bh*0.15, bw*0.12, bh*0.10, 0, 0, Math.PI*2);
-      ctx.fill();
-
-      // flash overlay
-      if (flash > 0){
-        ctx.fillStyle = `rgba(255,255,255,${flash})`;
-        ctx.beginPath();
-        ctx.ellipse(0,0,bw*0.44,bh*0.44,0,0,Math.PI*2);
-        ctx.fill();
+    let guard = 0;
+    while(guard++ < 6){
+      const t = state.turnIndex % 4;
+      if(t === 2){
+        if(state.enemies[0] && state.enemies[0].alive) break;
+        state.turnIndex = (state.turnIndex + 1) % 4;
+        continue;
       }
-
-      // legendary marker
-      if (e.legendary){
-        ctx.fillStyle = "rgba(255,240,160,0.95)";
-        ctx.fillRect(bw*0.18, -bh*0.52, bw*0.14, bh*0.12);
-        ctx.fillRect(bw*0.23, -bh*0.60, bw*0.04, bh*0.20);
+      if(t === 3){
+        if(state.enemies[1] && state.enemies[1].alive) break;
+        state.turnIndex = (state.turnIndex + 1) % 4;
+        continue;
       }
+      break;
+    }
+    setTurnWaiting();
 
-      ctx.restore();
+    if(!checkEnd()){
+      if(!state.waitingForPlayer){
+        queueEnemyAction();
+      } else {
+        pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
+      }
+    }
+  }
+
+  function startOrContinue(){
+    if(checkEnd()) return;
+    state.running = true;
+    setTurnWaiting();
+    if(state.waitingForPlayer){
+      pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
     } else {
-      // bandit as blocky “person”
-      const bw = size*0.8;
-      const bh = size*1.0*squash;
-      const bx = x + size*0.10;
-      const by = y;
+      queueEnemyAction();
+    }
+  }
 
-      // body
-      drawPixelRect(bx + px*4, by + px*8, px*10, px*12*squash, c1);
-      drawPixelRect(bx + px*5, by + px*9, px*8, px*10*squash, c2);
-      // head
-      drawPixelRect(bx + px*6, by + px*3, px*6, px*5, "#cfa57a");
-      drawPixelRect(bx + px*6, by + px*5, px*6, px*1, "#0f1016");
-      // weapon
-      drawPixelRect(bx + px*15, by + px*10, px*1, px*8*squash, "#cfd7e6");
+  // ---------- Animations ----------
+  function playAnim(anim){
+    state.anim = anim;
+    state.busy = true;
+    updateUI();
+    requestAnimationFrame(render);
+  }
 
-      if (flash > 0){
-        ctx.fillStyle = `rgba(255,255,255,${flash})`;
-        ctx.fillRect(bx + px*3, by + px*3, px*14, px*18);
+  function endAnim(){
+    state.anim = null;
+    state.busy = false;
+    updateUI();
+    if(!checkEnd()) advanceTurn();
+  }
+
+  // Player actions
+  function doSlash(){
+    if(!state.waitingForPlayer || state.busy || !state.running) return;
+    const target = pickTargetIndex();
+    if(target < 0) return;
+
+    const { atk } = derivedStats();
+    const dmg = clamp(randInt(6, 10) + Math.floor(atk/8), 6, 18);
+
+    pushLog(`Salem uses SLASH on Enemy ${target+1} for ${dmg}.`);
+    playAnim({ type: 'slash', t: 0, dur: 380, target, dmg });
+  }
+
+  function doFire(){
+    if(!state.waitingForPlayer || state.busy || !state.running) return;
+    const target = pickTargetIndex();
+    if(target < 0) return;
+
+    const cost = 2;
+    if(state.salem.mp < cost){
+      pushLog("Not enough mana.");
+      return;
+    }
+    state.salem.mp -= cost;
+
+    const { spAtk } = derivedStats();
+    const dmg = clamp(randInt(7, 11) + Math.floor(spAtk/8), 7, 19);
+
+    pushLog(`Salem casts FIRE on Enemy ${target+1} for ${dmg}. (-${cost} mana)`);
+    playAnim({ type: 'projectile', flavor: 'fire', t: 0, dur: 520, target, dmg });
+  }
+
+  function doWater(){
+    if(!state.waitingForPlayer || state.busy || !state.running) return;
+    const target = pickTargetIndex();
+    if(target < 0) return;
+
+    const cost = 2;
+    if(state.salem.mp < cost){
+      pushLog("Not enough mana.");
+      return;
+    }
+    state.salem.mp -= cost;
+
+    const { spAtk } = derivedStats();
+    const dmg = clamp(randInt(6, 10) + Math.floor(spAtk/10), 6, 17);
+
+    pushLog(`Salem casts WATER on Enemy ${target+1} for ${dmg}. (-${cost} mana)`);
+    playAnim({ type: 'projectile', flavor: 'water', t: 0, dur: 520, target, dmg });
+  }
+
+  function doHeal(){
+    if(!state.waitingForPlayer || state.busy || !state.running) return;
+    const cost = 3;
+    if(state.salem.mp < cost){
+      pushLog("Not enough mana.");
+      return;
+    }
+    state.salem.mp -= cost;
+
+    const healAmt = 10;
+    const before = state.salem.hp;
+    state.salem.hp = Math.min(state.salem.hpMax, state.salem.hp + healAmt);
+    const actual = state.salem.hp - before;
+
+    pushLog(`Salem uses HEAL (+${actual} HP). (-${cost} mana)`);
+    playAnim({ type: 'heal', t: 0, dur: 520 });
+  }
+
+  // Enemy action queue
+  function queueEnemyAction(){
+    if(state.busy || !state.running) return;
+    const t = state.turnIndex % 4;
+
+    const slot = (t === 2) ? 0 : 1;
+    const enemy = state.enemies[slot];
+    if(!enemy || !enemy.alive) { advanceTurn(); return; }
+
+    setTimeout(() => {
+      if(!state.running || state.busy) return;
+      enemyAct(slot);
+    }, 420);
+  }
+
+  function enemyAct(slot){
+    const e = state.enemies[slot];
+    if(!e || !e.alive) { advanceTurn(); return; }
+
+    if(e.ai === 'engorge'){
+      e.cast = (e.cast || 0) + 1;
+
+      if(e.cast % 3 === 0){
+        const cur = state.salem.hp;
+        const raw = Math.floor(cur * 0.20);
+        const dmg = Math.max(1, raw);
+        let finalHP = cur - dmg;
+        if(finalHP <= 0) finalHP = 1; // cannot kill
+        const applied = cur - finalHP;
+
+        pushLog(`ENGORGE uses MINDFLAY. (-${applied} HP)`);
+        playAnim({ type: 'mindflay', t: 0, dur: 720, dmg: applied });
+        return;
+      }
+
+      if(Math.random() < 0.40){
+        pushLog(`ENGORGE uses "yourdabich". (No effect)`);
+        playAnim({ type: 'speech', t: 0, dur: 920, speech: 'yourdabich' });
+        return;
+      }
+
+      const dmg = randInt(4, 8);
+      pushLog(`ENGORGE slams for ${dmg}.`);
+      playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg });
+      return;
+    }
+
+    // Normal auto-attack 2–6, reduced slightly by armor (but never below 1)
+    const { armor } = derivedStats();
+    const raw = randInt(2, 6);
+    const mitigated = Math.max(1, raw - Math.floor(armor/10));
+
+    pushLog(`${e.name} attacks for ${mitigated}.`);
+    playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg: mitigated });
+  }
+
+  // ---------- UI ----------
+  function updateUI(){
+    turnChip.textContent = `Turn: ${currentActorLabel()}`;
+    phaseChip.textContent = state.running ? (state.waitingForPlayer ? "Phase: Player Input" : "Phase: Enemy Action") : "Phase: Paused";
+
+    renderStatSheet();
+
+    const enablePlayer = state.running && state.waitingForPlayer && !state.busy && state.salem.hp > 0 && aliveEnemies().length > 0;
+    slashBtn.disabled = !enablePlayer;
+    fireBtn.disabled  = !enablePlayer;
+    waterBtn.disabled = !enablePlayer;
+    healBtn.disabled  = !enablePlayer;
+
+    if(enablePlayer && state.salem.mp < 3) healBtn.disabled = true;
+
+    // target buttons reflect state
+    const t = state.selectedTarget;
+    t1Btn.style.outline = (t === 0) ? "2px solid rgba(170,140,255,.7)" : "none";
+    t2Btn.style.outline = (t === 1) ? "2px solid rgba(170,140,255,.7)" : "none";
+  }
+
+  // ---------- Rendering ----------
+  function spriteForEnemy(e){
+    if(e.kind === 'slime') return sprites.slime;
+    if(e.kind === 'bandit') return sprites.bandit;
+    return sprites.engorge;
+  }
+
+  function render(){
+    state.frame++;
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+
+    const L = layout();
+
+    // subtle title
+    ctx.fillStyle = 'rgba(255,255,255,.08)';
+    ctx.font = '900 44px ui-sans-serif, system-ui';
+    ctx.fillText('IRONCLAD', 18, 56);
+
+    drawField(L.field);
+    drawBackgroundTrees(L.field);
+
+    const salem = L.salemPos;
+    const e1 = L.e1Pos;
+    const e2 = L.e2Pos;
+
+    // animation offsets
+    let salemOffsetX = 0, salemOffsetY = 0;
+    let proj = null;
+    let slashArc = null;
+    let healSpark = 0;
+    let mindflayPulse = 0;
+
+    if(state.anim){
+      const a = state.anim;
+      const t = clamp(a.t / a.dur, 0, 1);
+
+      if(a.type === 'slash'){
+        const dash = t < 0.5 ? (t/0.5) : (1 - (t-0.5)/0.5);
+        salemOffsetX = dash * 42;
+        salemOffsetY = -dash * 12;
+        const targetPos = (a.target === 0) ? e1 : e2;
+        slashArc = { x: targetPos.x - 20, y: targetPos.y - 80, a: dash };
+      }
+      if(a.type === 'projectile'){
+        const targetPos = (a.target === 0) ? e1 : e2;
+        const sx = salem.x + 40, sy = salem.y - 90;
+        const ex = targetPos.x - 40, ey = targetPos.y - 110;
+        const px = sx + (ex - sx) * t;
+        const py = sy + (ey - sy) * t;
+        proj = { x:px, y:py, flavor:a.flavor };
+      }
+      if(a.type === 'heal'){
+        healSpark = 1 - Math.abs(0.5 - t) * 2;
+      }
+      if(a.type === 'mindflay'){
+        mindflayPulse = 1 - Math.abs(0.5 - t) * 2;
+      }
+    }
+
+    // target rings behind enemies
+    const targetIndex = pickTargetIndex();
+    if(targetIndex === 0) drawTargetRing(e1.x, e1.y, e1.scale, !!state.enemies[0]?.alive);
+    if(targetIndex === 1) drawTargetRing(e2.x, e2.y, e2.scale, !!state.enemies[1]?.alive);
+
+    // draw Salem
+    drawSprite(sprites.knight, salem.x + salemOffsetX, salem.y + salemOffsetY, salem.scale);
+
+    // draw enemies + set hitboxes
+    state.hitboxes.e1 = null;
+    state.hitboxes.e2 = null;
+
+    if(state.enemies[0]){
+      const s = spriteForEnemy(state.enemies[0]);
+      const rect = drawSprite(s, e1.x, e1.y, e1.scale, 0.5, 1.0);
+      state.hitboxes.e1 = rect;
+      // faded enemy name
+      if(state.enemies[0].alive){
+        ctx.fillStyle = 'rgba(255,255,255,.55)';
+        ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
+        ctx.fillText("Enemy 1", rect.x + 4, rect.y - 6);
+      }
+    }
+    if(state.enemies[1]){
+      const s = spriteForEnemy(state.enemies[1]);
+      const rect = drawSprite(s, e2.x, e2.y, e2.scale, 0.5, 1.0);
+      state.hitboxes.e2 = rect;
+      if(state.enemies[1].alive){
+        ctx.fillStyle = 'rgba(255,255,255,.55)';
+        ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
+        ctx.fillText("Enemy 2", rect.x + 4, rect.y - 6);
+      }
+    }
+
+    // slash arc
+    if(slashArc){
+      ctx.save();
+      ctx.globalAlpha = 0.85 * slashArc.a;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(slashArc.x, slashArc.y, 26, Math.PI*0.1, Math.PI*1.25);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // projectile
+    if(proj){
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      if(proj.flavor === 'fire'){
+        ctx.fillStyle = 'rgba(255,140,70,.95)';
+        ctx.strokeStyle = 'rgba(255,220,170,.70)';
+      }else{
+        ctx.fillStyle = 'rgba(90,170,255,.95)';
+        ctx.strokeStyle = 'rgba(200,240,255,.70)';
+      }
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, 10, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.arc(proj.x - 16, proj.y + 6, 7, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Heal sparkles near Salem
+    if(healSpark > 0){
+      ctx.save();
+      ctx.globalAlpha = 0.8 * healSpark;
+      ctx.fillStyle = 'rgba(120,220,120,.95)';
+      for(let i=0;i<8;i++){
+        const ang = (i/8)*Math.PI*2;
+        const r = 18 + 18*healSpark;
+        const x = salem.x + Math.cos(ang)*r;
+        const y = salem.y - 78 + Math.sin(ang)*r;
+        ctx.fillRect(x, y, 3, 3);
+      }
+      ctx.restore();
+    }
+
+    // Mindflay pulse overlay
+    if(mindflayPulse > 0){
+      ctx.save();
+      ctx.globalAlpha = 0.18 * mindflayPulse;
+      ctx.fillStyle = 'rgba(170,140,255,.95)';
+      ctx.fillRect(0,0,canvas.width, canvas.height);
+      ctx.restore();
+    }
+
+    // enemy hit flash on Salem
+    if(state.anim && state.anim.type === 'enemyHit'){
+      const a = state.anim;
+      const t = clamp(a.t / a.dur, 0, 1);
+      const alpha = 0.65 * (1 - t);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = 'rgba(255,90,90,.9)';
+      ctx.fillRect(salem.x - 50, salem.y - 150, 100, 120);
+      ctx.restore();
+    }
+
+    // speech bubble (yourdabich)
+    if(state.anim && state.anim.type === 'speech'){
+      const bubbleOn = (state.enemies[0]?.kind === 'engorge' && state.enemies[0]?.alive) ? e1 :
+                       (state.enemies[1]?.kind === 'engorge' && state.enemies[1]?.alive) ? e2 : e1;
+      drawSpeechBubble(bubbleOn.x, bubbleOn.y - 120, 'yourdabich');
+    }
+
+    // HUD near Salem
+    drawHUD(L.hud);
+
+    // Debug hitboxes
+    if(state.debug){
+      ctx.fillStyle = 'rgba(255,255,255,.75)';
+      ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillText(`turnIndex=${state.turnIndex} waitingForPlayer=${state.waitingForPlayer} busy=${state.busy} selectedTarget=${state.selectedTarget}`, 18, canvas.height - 18);
+
+      const hb1 = state.hitboxes.e1, hb2 = state.hitboxes.e2;
+      ctx.strokeStyle = 'rgba(255,255,255,.25)';
+      ctx.lineWidth = 2;
+      if(hb1) ctx.strokeRect(hb1.x, hb1.y, hb1.w, hb1.h);
+      if(hb2) ctx.strokeRect(hb2.x, hb2.y, hb2.w, hb2.h);
+    }
+
+    // Advance animation
+    if(state.anim){
+      state.anim.t += 16;
+      if(state.anim.t >= state.anim.dur){
+        const a = state.anim;
+        if(a.type === 'slash') damageEnemy(a.target, a.dmg);
+        if(a.type === 'projectile') damageEnemy(a.target, a.dmg);
+        if(a.type === 'enemyHit') damageSalem(a.dmg);
+        if(a.type === 'mindflay') damageSalem(a.dmg);
+        endAnim();
+        render();
+        return;
+      }
+      requestAnimationFrame(render);
+      return;
+    }
+  }
+
+  // ---------- Targeting ----------
+  function setTarget(idx){
+    if(idx !== 0 && idx !== 1) return;
+    state.selectedTarget = idx;
+    const e = state.enemies[idx];
+    if(e && e.alive) pushLog(`Target set: Enemy ${idx+1}.`);
+    updateUI();
+    render();
+  }
+
+  function pointInRect(px,py,r){
+    return !!r && px >= r.x && px <= r.x+r.w && py >= r.y && py <= r.y+r.h;
+  }
+
+  function canvasToLocal(evt){
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (evt.clientY - rect.top) * (canvas.height / rect.height);
+    return {x,y};
+  }
+
+  canvas.addEventListener('click', (evt) => {
+    const p = canvasToLocal(evt);
+    if(pointInRect(p.x,p.y,state.hitboxes.e1)) return setTarget(0);
+    if(pointInRect(p.x,p.y,state.hitboxes.e2)) return setTarget(1);
+  });
+
+  // ---------- UI ----------
+  function updateUI(){
+    turnChip.textContent = `Turn: ${currentActorLabel()}`;
+    phaseChip.textContent = state.running ? (state.waitingForPlayer ? "Phase: Player Input" : "Phase: Enemy Action") : "Phase: Paused";
+
+    renderStatSheet();
+
+    const enablePlayer = state.running && state.waitingForPlayer && !state.busy && state.salem.hp > 0 && aliveEnemies().length > 0;
+    slashBtn.disabled = !enablePlayer;
+    fireBtn.disabled  = !enablePlayer;
+    waterBtn.disabled = !enablePlayer;
+    healBtn.disabled  = !enablePlayer;
+
+    if(enablePlayer && state.salem.mp < 3) healBtn.disabled = true;
+
+    const t = state.selectedTarget;
+    t1Btn.style.outline = (t === 0) ? "2px solid rgba(170,140,255,.7)" : "none";
+    t2Btn.style.outline = (t === 1) ? "2px solid rgba(170,140,255,.7)" : "none";
+  }
+
+  // ---------- Turn logic ----------
+  function setTurnWaiting(){
+    state.waitingForPlayer = ((state.turnIndex % 4) === 0) || ((state.turnIndex % 4) === 1);
+    updateUI();
+  }
+
+  function advanceTurn(){
+    state.turnIndex = (state.turnIndex + 1) % 4;
+
+    let guard = 0;
+    while(guard++ < 6){
+      const t = state.turnIndex % 4;
+      if(t === 2){
+        if(state.enemies[0] && state.enemies[0].alive) break;
+        state.turnIndex = (state.turnIndex + 1) % 4;
+        continue;
+      }
+      if(t === 3){
+        if(state.enemies[1] && state.enemies[1].alive) break;
+        state.turnIndex = (state.turnIndex + 1) % 4;
+        continue;
+      }
+      break;
+    }
+    setTurnWaiting();
+
+    if(!checkEnd()){
+      if(!state.waitingForPlayer){
+        queueEnemyAction();
+      } else {
+        pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
       }
     }
   }
 
-  function drawEffects(w,h){
-    const fb = effects.fireball;
-    if (!fb) return;
-    const p = worldToScreen(fb.x, fb.y, w,h);
-    const r = 12 + fb.r;
-    // outer glow
-    ctx.fillStyle = "rgba(255,120,60,0.25)";
-    ctx.beginPath(); ctx.arc(p.x, p.y, r*1.6, 0, Math.PI*2); ctx.fill();
-    // core
-    ctx.fillStyle = "rgba(255,210,120,0.95)";
-    ctx.beginPath(); ctx.arc(p.x, p.y, r*0.85, 0, Math.PI*2); ctx.fill();
-    // hot center
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.beginPath(); ctx.arc(p.x - r*0.15, p.y - r*0.15, r*0.35, 0, Math.PI*2); ctx.fill();
-  }
-
-  function drawFrame(){
-    const w = canvas.width;
-    const h = canvas.height;
-
-    drawArena(w,h);
-    // Draw order: enemy behind? In top-down feel, higher y means closer.
-    const pY = actors.player.pos.y + (actors.player.anim.oy||0)/h;
-    const eY = actors.enemy.pos.y + (actors.enemy.anim.oy||0)/h;
-
-    // Sort by y for “depth”
-    const drawList = [
-      { a: actors.player, fn: drawPlayer, depth: pY },
-      { a: actors.enemy, fn: drawEnemy,  depth: eY }
-    ].sort((A,B)=> A.depth - B.depth);
-
-    // Effects under characters a bit
-    drawEffects(w,h);
-
-    // Draw actors
-    for (const it of drawList){
-      it.fn(it.a, w,h);
-    }
-
-    // Spark hint on melee “impact” (when enemy is flashing strongly)
-    if ((actors.enemy.anim.flash||0) > 0.28){
-      const base = worldToScreen(actors.enemy.pos.x, actors.enemy.pos.y, w,h);
-      drawHitSpark(base.x - 40, base.y - 70, 1.2);
-    }
-    if ((actors.player.anim.flash||0) > 0.28){
-      const base = worldToScreen(actors.player.pos.x, actors.player.pos.y, w,h);
-      drawHitSpark(base.x + 35, base.y - 90, 1.0);
+  function startOrContinue(){
+    if(checkEnd()) return;
+    state.running = true;
+    setTurnWaiting();
+    if(state.waitingForPlayer){
+      pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
+    } else {
+      queueEnemyAction();
     }
   }
 
-  /********************
-   * Main Loop
-   ********************/
-  let last = performance.now();
-  function loop(now){
-    const dt = now - last; last = now;
-    game.time.t += dt;
-    game.time.dt = dt;
+  // ---------- Player buttons ----------
+  slashBtn.addEventListener('click', () => doSlash());
+  fireBtn.addEventListener('click',  () => doFire());
+  waterBtn.addEventListener('click', () => doWater());
+  healBtn.addEventListener('click',  () => doHeal());
 
-    // decay flashes smoothly
-    actors.player.anim.flash = clamp((actors.player.anim.flash||0) - dt*0.0012, 0, 1);
-    actors.enemy.anim.flash  = clamp((actors.enemy.anim.flash||0) - dt*0.0012, 0, 1);
+  t1Btn.addEventListener('click', () => setTarget(0));
+  t2Btn.addEventListener('click', () => setTarget(1));
 
-    updateHUD();
-    drawFrame();
+  applyEnemiesBtn.addEventListener('click', () => applyEnemies());
+  startBtn.addEventListener('click', () => startOrContinue());
 
-    requestAnimationFrame(loop);
+  resetBtn.addEventListener('click', () => resetBattle());
+  toggleDebugBtn.addEventListener('click', () => {
+    state.debug = !state.debug;
+    toggleDebugBtn.textContent = `Debug: ${state.debug ? 'ON' : 'OFF'}`;
+    render();
+  });
+
+  function resetBattle(){
+    state.salem.hp = 32;
+    state.salem.hpMax = 32;
+    state.salem.mp = 25;
+    state.salem.mpMax = 25;
+
+    state.enemies = [ makeEnemy(enemy1Sel.value), makeEnemy(enemy2Sel.value) ];
+    state.selectedTarget = 0;
+    state.turnIndex = 0;
+    state.running = false;
+    state.waitingForPlayer = true;
+    state.busy = false;
+    state.anim = null;
+
+    logEl.textContent = "";
+    pushLog("Battle reset. Tap Start / Continue.");
+    updateUI();
+    render();
   }
 
-  // Initialize
-  updateHUD();
-  setMessage("A Slime appears.");
-  spawnEnemy("slime");
-  writeActorsToSave();
-  saveNow();
-  requestAnimationFrame(loop);
+  // ---------- Enemy AI ----------
+  function aliveEnemies(){
+    return state.enemies.map((e,i)=>({e,i})).filter(o => o.e.alive && o.e.hp > 0);
+  }
 
+  function pickTargetIndex(){
+    const t = state.selectedTarget;
+    const e = state.enemies[t];
+    if(e && e.alive && e.hp > 0) return t;
+    const alive = aliveEnemies();
+    return alive.length ? alive[0].i : -1;
+  }
+
+  function checkEnd(){
+    if(state.salem.hp <= 0){
+      pushLog("Salem falls. (Battle Over)");
+      state.running = false;
+      state.waitingForPlayer = false;
+      updateUI();
+      return true;
+    }
+    if(aliveEnemies().length === 0){
+      pushLog("Victory. (All enemies defeated)");
+      state.running = false;
+      state.waitingForPlayer = false;
+      updateUI();
+      return true;
+    }
+    return false;
+  }
+
+  function queueEnemyAction(){
+    if(state.busy || !state.running) return;
+    const t = state.turnIndex % 4;
+    const slot = (t === 2) ? 0 : 1;
+    const enemy = state.enemies[slot];
+    if(!enemy || !enemy.alive) { advanceTurn(); return; }
+
+    setTimeout(() => {
+      if(!state.running || state.busy) return;
+      enemyAct(slot);
+    }, 420);
+  }
+
+  function enemyAct(slot){
+    const e = state.enemies[slot];
+    if(!e || !e.alive) { advanceTurn(); return; }
+
+    if(e.ai === 'engorge'){
+      e.cast = (e.cast || 0) + 1;
+
+      if(e.cast % 3 === 0){
+        const cur = state.salem.hp;
+        const raw = Math.floor(cur * 0.20);
+        const dmg = Math.max(1, raw);
+        let finalHP = cur - dmg;
+        if(finalHP <= 0) finalHP = 1;
+        const applied = cur - finalHP;
+
+        pushLog(`ENGORGE uses MINDFLAY. (-${applied} HP)`);
+        playAnim({ type: 'mindflay', t: 0, dur: 720, dmg: applied });
+        return;
+      }
+
+      if(Math.random() < 0.40){
+        pushLog(`ENGORGE uses "yourdabich". (No effect)`);
+        playAnim({ type: 'speech', t: 0, dur: 920, speech: 'yourdabich' });
+        return;
+      }
+
+      const dmg = randInt(4, 8);
+      pushLog(`ENGORGE slams for ${dmg}.`);
+      playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg });
+      return;
+    }
+
+    const { armor } = derivedStats();
+    const raw = randInt(2, 6);
+    const mitigated = Math.max(1, raw - Math.floor(armor/10));
+
+    pushLog(`${e.name} attacks for ${mitigated}.`);
+    playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg: mitigated });
+  }
+
+  // ---------- Damage application ----------
+  function damageEnemy(i, dmg){
+    const e = state.enemies[i];
+    if(!e || !e.alive) return;
+    e.hp = Math.max(0, e.hp - dmg);
+    if(e.hp <= 0){
+      e.alive = false;
+      pushLog(`${e.name} is defeated.`);
+    }
+  }
+  function damageSalem(dmg){
+    state.salem.hp = Math.max(0, state.salem.hp - dmg);
+  }
+
+  function currentActorLabel(){
+    const t = state.turnIndex % 4;
+    if(t === 0) return "Salem (Action 1)";
+    if(t === 1) return "Salem (Action 2)";
+    if(t === 2) return state.enemies[0]?.alive ? `${state.enemies[0].name}` : "Enemy 1 (Down)";
+    return state.enemies[1]?.alive ? `${state.enemies[1].name}` : "Enemy 2 (Down)";
+  }
+
+  // ---------- Init ----------
+  applyEnemies();
+  logEl.textContent = "";
+  pushLog("Ready. Tap Start / Continue to begin. Tap an enemy to set target.");
+  updateUI();
+  render();
 })();
 </script>
 </body>
