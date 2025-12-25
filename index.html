@@ -1,97 +1,1180 @@
-<!DOCTYPE html>
+<!--
+IRON CLAD — v0.1 (Combat Prototype, Mobile-First, Single-File)
+CHANGELOG
+- v0.1: Replaced static blocks with layered “character sprites” (chunky pixel silhouette)
+- v0.1: Added slight top-down arena camera (your choice: 1B)
+- v0.1: Implemented Gen-1-like turn flow with queued text + animations
+- v0.1: Slash now lunges forward + hit spark + enemy squish (your choice: 3A)
+- v0.1: Fire now casts a projectile + impact flash
+- v0.1: Added tiny engine layer: state machine, action queue, animation timelines
+- v0.1: Added localStorage save w/ versioning + auto-save after battle
+- v0.1: Added Debug toggle (spawn enemy / heal / grant XP)
+SAVE COMPAT
+- Save schema version: 0.1 (will migrate forward in later builds)
+-->
+
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Ironclad – Combat Demo</title>
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  background: #111;
-  color: #eee;
-  font-family: monospace;
-}
-#game {
-  display: block;
-  margin: 10px auto;
-  background: #222;
-  border: 2px solid #555;
-}
-#ui {
-  text-align: center;
-}
-button {
-  font-size: 16px;
-  padding: 12px 18px;
-  margin: 6px;
-  background: #444;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Ironclad — Combat Prototype v0.1</title>
+  <style>
+    :root{
+      --bg:#0b0b0e;
+      --panel:#111118;
+      --panel2:#151525;
+      --text:#e8e8ee;
+      --muted:#a6a6b4;
+      --btn:#2b2b34;
+      --btn2:#3a3a48;
+      --ok:#2ecc71;
+      --bad:#e74c3c;
+      --accent:#8e44ad;
+    }
+
+    html,body{height:100%; background:var(--bg); margin:0; color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
+    body{display:flex; align-items:stretch; justify-content:center;}
+
+    .wrap{
+      width:min(980px, 100vw);
+      height:100vh;
+      display:flex;
+      flex-direction:column;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      box-sizing:border-box;
+    }
+
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 12px;
+      gap:10px;
+    }
+    .title{
+      font-weight:700; letter-spacing:0.5px; font-size:14px; color:var(--muted);
+      display:flex; align-items:center; gap:10px;
+    }
+    .pill{
+      font-size:12px; padding:4px 8px; border-radius:999px;
+      background:linear-gradient(180deg, #202031, #141421);
+      border:1px solid rgba(255,255,255,0.08);
+      color:var(--muted);
+    }
+    .right{
+      display:flex; gap:8px; align-items:center;
+    }
+    button{
+      -webkit-tap-highlight-color: transparent;
+      border:1px solid rgba(255,255,255,0.10);
+      background:linear-gradient(180deg, var(--btn2), var(--btn));
+      color:var(--text);
+      border-radius:12px;
+      padding:12px 14px;
+      font-size:16px;
+      font-weight:700;
+      cursor:pointer;
+      user-select:none;
+    }
+    button:active{ transform: translateY(1px); filter:brightness(1.07);}
+    button.small{
+      padding:10px 12px; font-size:14px; border-radius:10px; font-weight:700;
+    }
+    button.ghost{
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.12);
+      color:var(--muted);
+    }
+    button.primary{
+      border-color: rgba(142,68,173,0.35);
+      box-shadow: 0 0 0 2px rgba(142,68,173,0.12) inset;
+    }
+    button.danger{
+      border-color: rgba(231,76,60,0.35);
+      box-shadow: 0 0 0 2px rgba(231,76,60,0.12) inset;
+    }
+
+    .stage{
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      padding:0 12px 12px;
+      gap:10px;
+      box-sizing:border-box;
+    }
+
+    .canvasShell{
+      background:linear-gradient(180deg, #0f0f14, #0b0b0e);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:16px;
+      overflow:hidden;
+      position:relative;
+      min-height: 240px;
+    }
+    canvas{display:block; width:100%; height:auto; background:#101016;}
+    .hud{
+      position:absolute; left:0; right:0; top:0;
+      display:flex; justify-content:space-between; gap:10px;
+      padding:10px;
+      pointer-events:none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#d9d9e2;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.4);
+    }
+    .hud .box{
+      background:rgba(0,0,0,0.25);
+      border:1px solid rgba(255,255,255,0.10);
+      padding:6px 8px;
+      border-radius:10px;
+      pointer-events:none;
+      backdrop-filter: blur(2px);
+    }
+
+    .textBox{
+      background:linear-gradient(180deg, #121220, #0e0e16);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:16px;
+      padding:12px 12px;
+      min-height:74px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .msg{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:16px;
+      line-height:1.25;
+      color:#e9e9f1;
+      white-space:pre-wrap;
+      flex:1;
+    }
+
+    .cmdRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:center;
+    }
+    .cmdRow button{
+      min-width: 140px;
+      padding:14px 16px;
+      border-radius:14px;
+      font-size:18px;
+    }
+
+    /* Debug Drawer */
+    .debug{
+      display:none;
+      background:linear-gradient(180deg, #131322, #0e0e16);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:16px;
+      padding:12px;
+      gap:10px;
+      flex-direction:column;
+    }
+    .debug.on{display:flex;}
+    .debug .row{display:flex; gap:10px; flex-wrap:wrap;}
+    .debug .row button{min-width: 160px;}
+
+    .foot{
+      padding:0 12px 12px;
+      color:var(--muted);
+      font-size:12px;
+      text-align:center;
+    }
+  </style>
 </head>
 <body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">
+        IRON CLAD <span class="pill">Combat Prototype v0.1</span>
+        <span class="pill" id="savePill">Save: —</span>
+      </div>
+      <div class="right">
+        <button class="small ghost" id="btnReset">Reset Save</button>
+        <button class="small primary" id="btnDebug">Debug: OFF</button>
+      </div>
+    </div>
 
-<canvas id="game" width="360" height="200"></canvas>
+    <div class="stage">
+      <div class="canvasShell">
+        <div class="hud">
+          <div class="box" id="hudLeft">Kael Varrin • HP: — • Lvl: —</div>
+          <div class="box" id="hudRight">Enemy • HP: —</div>
+        </div>
+        <canvas id="c"></canvas>
+      </div>
 
-<div id="ui">
-  <div id="log">A Slime appears.</div>
-  <button onclick="attack()">Slash</button>
-  <button onclick="fire()">Fire</button>
-</div>
+      <div class="textBox">
+        <div class="msg" id="msg">Loading…</div>
+      </div>
+
+      <div class="cmdRow">
+        <button id="btnSlash">Slash</button>
+        <button id="btnFire">Fire</button>
+      </div>
+
+      <div class="debug" id="debugPanel">
+        <div class="row">
+          <button id="dbgHeal">Heal to Full</button>
+          <button id="dbgGrantXP">Grant +25 XP</button>
+          <button id="dbgSpawnSlime">Spawn: Slime</button>
+          <button id="dbgSpawnBandit">Spawn: Bandit</button>
+          <button id="dbgSpawnWisp">Spawn: Wisp</button>
+        </div>
+        <div class="row">
+          <button class="danger" id="dbgLegendary">Force Legendary Spawn</button>
+          <button id="dbgAutosave">Manual Save Now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">Tip: If the screen looks too tall, rotate to landscape. This prototype is intentionally “simple shapes” and will evolve.</div>
+  </div>
 
 <script>
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+(() => {
+  /********************
+   * Utilities
+   ********************/
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  const easeInOutQuad = t => t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2;
+  const rand = (a,b) => a + Math.random()*(b-a);
+  const pick = arr => arr[Math.floor(Math.random()*arr.length)];
 
-let player = { hp: 30 };
-let enemy  = { hp: 20 };
+  /********************
+   * Save / Load (versioned)
+   ********************/
+  const SAVE_KEY = "ironclad_save";
+  const SAVE_VERSION = "0.1";
 
-function draw() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  ctx.fillStyle = "#4af"; // player
-  ctx.fillRect(40, 120, 30, 30);
-
-  ctx.fillStyle = "#4f4"; // enemy
-  ctx.fillRect(280, 100, 30, 30);
-
-  ctx.fillStyle = "#fff";
-  ctx.fillText("HP: " + player.hp, 20, 20);
-  ctx.fillText("Enemy HP: " + enemy.hp, 220, 20);
-}
-
-function attack() {
-  enemy.hp -= 5;
-  log("You slash the slime!");
-  enemyTurn();
-}
-
-function fire() {
-  enemy.hp -= 8;
-  log("You cast fire!");
-  enemyTurn();
-}
-
-function enemyTurn() {
-  if (enemy.hp <= 0) {
-    log("Enemy defeated!");
-    draw();
-    return;
+  function defaultSave(){
+    return {
+      v: SAVE_VERSION,
+      player: {
+        name: "Kael Varrin",
+        classId: "warrior",
+        lvl: 1,
+        xp: 0,
+        maxHp: 30,
+        hp: 30,
+        stats: { str: 6, sta: 6, skl: 4, res: 0, spd: 4, mind: 3 },
+        look: { head: 1, body: 1, gender: "m", equip: { sword: "rust_sword", shield: "wood_shield", armor: "patch_mail" } }
+      },
+      meta: { lastSaveTs: 0, battlesWon: 0 }
+    };
   }
-  player.hp -= 3;
-  log("The slime attacks!");
-  draw();
-}
 
-function log(text) {
-  document.getElementById("log").innerText = text;
-}
+  function migrateSave(s){
+    // Future-proofing: if we bump versions later, do stepwise migrations here.
+    if (!s || typeof s !== "object") return defaultSave();
+    if (!s.v) return defaultSave();
+    if (s.v === SAVE_VERSION) return s;
 
-draw();
+    // Example placeholder:
+    // if (s.v === "0.0") { ...; s.v = "0.1"; }
+    // For now, safest: preserve what we can.
+    const base = defaultSave();
+    try{
+      base.player = Object.assign(base.player, s.player || {});
+      base.meta = Object.assign(base.meta, s.meta || {});
+    }catch(e){}
+    base.v = SAVE_VERSION;
+    return base;
+  }
+
+  function loadSave(){
+    try{
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return defaultSave();
+      return migrateSave(JSON.parse(raw));
+    }catch(e){
+      return defaultSave();
+    }
+  }
+
+  function saveNow(){
+    try{
+      game.save.meta.lastSaveTs = Date.now();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(game.save));
+      updateSavePill();
+    }catch(e){}
+  }
+
+  function resetSave(){
+    localStorage.removeItem(SAVE_KEY);
+    game.save = defaultSave();
+    applySaveToActors();
+    saveNow();
+    setMessage("Save reset. A Slime appears.");
+    spawnEnemy("slime");
+  }
+
+  /********************
+   * Data Tables
+   ********************/
+  const ENEMIES = {
+    slime:   { name:"Slime",    maxHp:20, atk:4,  spd:3,  type:"ooze",  legendary:false },
+    bandit:  { name:"Bandit",   maxHp:24, atk:5,  spd:5,  type:"human", legendary:false },
+    wisp:    { name:"Wisp",     maxHp:18, atk:6,  spd:6,  type:"spirit",legendary:false },
+    // Example legendary (low spawn chance in real game)
+    voidwisp:{ name:"Void Wisp",maxHp:28, atk:8,  spd:8,  type:"legend",legendary:true }
+  };
+
+  const SKILLS = {
+    slash: { name:"Slash", kind:"melee", power: 7, mp:0 },
+    fire:  { name:"Fire",  kind:"magic", power: 8, mp:0 }
+  };
+
+  /********************
+   * Canvas Setup
+   ********************/
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+
+  function resize(){
+    // Keep a stable “game resolution” while scaling for device.
+    // We prefer wide. If portrait, still works but letterboxes.
+    const shell = canvas.parentElement.getBoundingClientRect();
+    const targetW = Math.floor(shell.width);
+    const targetH = Math.floor(shell.height);
+
+    // Internal resolution tuned for crisp pixel blocks
+    // Maintain 16:9-ish internal. Fit inside shell.
+    const aspect = 16/9;
+    let w = targetW;
+    let h = Math.floor(w/aspect);
+    if (h > targetH){ h = targetH; w = Math.floor(h*aspect); }
+
+    canvas.width = Math.max(640, w*2);   // higher internal for clean
+    canvas.height = Math.max(360, h*2);
+  }
+  window.addEventListener("resize", resize, {passive:true});
+  resize();
+
+  /********************
+   * Engine Core
+   ********************/
+  const game = {
+    state: "battle", // for this prototype
+    save: loadSave(),
+    debug: false,
+    time: { t:0, dt:0 },
+    queue: [],       // action queue (animations + text)
+    textQueue: [],   // message pacing
+    busy: false
+  };
+
+  // Actors (simple, but scalable)
+  const actors = {
+    player: makePlayerActor(),
+    enemy:  makeEnemyActor("slime")
+  };
+
+  function makePlayerActor(){
+    return {
+      id:"player",
+      name:"Kael Varrin",
+      hp: 30, maxHp:30,
+      lvl:1, xp:0,
+      stats: { str:6, sta:6, skl:4, res:0, spd:4, mind:3 },
+      // Position in arena (slight top-down camera)
+      pos: { x: 0.28, y: 0.62 }, // normalized
+      // Animation offsets
+      anim: {
+        bob: 0,
+        ox: 0, oy: 0,
+        squash: 1,
+        flash: 0,
+        facing: 1 // 1 right, -1 left
+      },
+      look: { head:1, body:1, gender:"m", equip: { sword:"rust_sword", shield:"wood_shield", armor:"patch_mail" } }
+    };
+  }
+
+  function makeEnemyActor(type){
+    const d = ENEMIES[type];
+    return {
+      id:"enemy",
+      type,
+      name: d.name,
+      hp: d.maxHp, maxHp: d.maxHp,
+      atk: d.atk, spd: d.spd,
+      legendary: d.legendary,
+      pos: { x: 0.72, y: 0.45 },
+      anim: {
+        bob: 0,
+        ox: 0, oy: 0,
+        squash: 1,
+        flash: 0,
+        wobble: 0
+      }
+    };
+  }
+
+  function applySaveToActors(){
+    const s = game.save.player;
+    actors.player.name = s.name;
+    actors.player.lvl = s.lvl;
+    actors.player.xp  = s.xp;
+    actors.player.maxHp = s.maxHp;
+    actors.player.hp = clamp(s.hp, 0, s.maxHp);
+    actors.player.stats = Object.assign({}, s.stats);
+    actors.player.look = JSON.parse(JSON.stringify(s.look));
+  }
+  applySaveToActors();
+
+  function writeActorsToSave(){
+    const p = game.save.player;
+    p.lvl = actors.player.lvl;
+    p.xp  = actors.player.xp;
+    p.maxHp = actors.player.maxHp;
+    p.hp = actors.player.hp;
+    p.stats = Object.assign({}, actors.player.stats);
+    p.look = JSON.parse(JSON.stringify(actors.player.look));
+  }
+
+  /********************
+   * UI
+   ********************/
+  const msgEl = document.getElementById("msg");
+  const hudLeft = document.getElementById("hudLeft");
+  const hudRight = document.getElementById("hudRight");
+  const savePill = document.getElementById("savePill");
+
+  const btnSlash = document.getElementById("btnSlash");
+  const btnFire  = document.getElementById("btnFire");
+  const btnDebug = document.getElementById("btnDebug");
+  const debugPanel = document.getElementById("debugPanel");
+  const btnReset = document.getElementById("btnReset");
+
+  function setMessage(text){
+    msgEl.textContent = text;
+  }
+
+  function updateHUD(){
+    hudLeft.textContent  = `${actors.player.name} • HP: ${actors.player.hp}/${actors.player.maxHp} • Lvl: ${actors.player.lvl} • XP: ${actors.player.xp}`;
+    const e = actors.enemy;
+    hudRight.textContent = `${e.legendary ? "★ " : ""}${e.name} • HP: ${e.hp}/${e.maxHp}`;
+  }
+
+  function updateSavePill(){
+    const ts = game.save.meta.lastSaveTs || 0;
+    if (!ts) { savePill.textContent = "Save: —"; return; }
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2,"0");
+    const mm = String(d.getMinutes()).padStart(2,"0");
+    savePill.textContent = `Save: ${hh}:${mm}`;
+  }
+  updateSavePill();
+
+  function setBusy(b){
+    game.busy = b;
+    btnSlash.disabled = b;
+    btnFire.disabled = b;
+    btnSlash.style.opacity = b ? 0.6 : 1;
+    btnFire.style.opacity  = b ? 0.6 : 1;
+  }
+
+  btnDebug.addEventListener("click", () => {
+    game.debug = !game.debug;
+    btnDebug.textContent = `Debug: ${game.debug ? "ON" : "OFF"}`;
+    debugPanel.classList.toggle("on", game.debug);
+  });
+
+  btnReset.addEventListener("click", resetSave);
+
+  // Debug actions
+  document.getElementById("dbgHeal").addEventListener("click", () => {
+    actors.player.hp = actors.player.maxHp;
+    updateHUD();
+    setMessage("Debug: Healed to full.");
+    writeActorsToSave(); saveNow();
+  });
+  document.getElementById("dbgGrantXP").addEventListener("click", () => {
+    grantXP(25);
+    updateHUD();
+    setMessage("Debug: +25 XP granted.");
+    writeActorsToSave(); saveNow();
+  });
+  document.getElementById("dbgSpawnSlime").addEventListener("click", () => spawnEnemy("slime"));
+  document.getElementById("dbgSpawnBandit").addEventListener("click", () => spawnEnemy("bandit"));
+  document.getElementById("dbgSpawnWisp").addEventListener("click", () => spawnEnemy("wisp"));
+  document.getElementById("dbgLegendary").addEventListener("click", () => spawnEnemy("voidwisp"));
+  document.getElementById("dbgAutosave").addEventListener("click", () => { writeActorsToSave(); saveNow(); setMessage("Saved."); });
+
+  /********************
+   * Battle Flow
+   ********************/
+  function spawnEnemy(type){
+    if (!ENEMIES[type]) type = "slime";
+    actors.enemy = makeEnemyActor(type);
+    updateHUD();
+    setMessage(`${actors.enemy.legendary ? "A LEGENDARY " : "A "} ${actors.enemy.name.toUpperCase()} appears.`);
+    setBusy(false);
+  }
+
+  function calcDamage(attacker, defender, skill){
+    // Simple, readable formula (will change later)
+    const base = skill.power;
+    const str = attacker.stats?.str ?? attacker.atk ?? 5;
+    const mind = attacker.stats?.mind ?? 3;
+    const variance = rand(0.85, 1.15);
+    let dmg = base;
+
+    if (skill.kind === "melee") dmg += Math.floor(str * 0.9);
+    if (skill.kind === "magic") dmg += Math.floor(mind * 1.1);
+
+    dmg = Math.floor(dmg * variance);
+    dmg = clamp(dmg, 1, 999);
+    return dmg;
+  }
+
+  function enemyAttack(){
+    const e = actors.enemy;
+    const p = actors.player;
+    const dmg = clamp(Math.floor(e.atk * rand(0.9, 1.2)), 1, 999);
+    return { name: "Tackle", dmg };
+  }
+
+  function grantXP(amount){
+    const p = actors.player;
+    p.xp += amount;
+    // Level curve (simple)
+    while (p.xp >= xpToNext(p.lvl)){
+      p.xp -= xpToNext(p.lvl);
+      p.lvl += 1;
+      // small growth
+      p.maxHp += 3;
+      p.hp = p.maxHp;
+      p.stats.str += 1;
+      p.stats.sta += 1;
+      p.stats.skl += 1;
+      p.stats.spd += 1;
+      p.stats.mind += 1;
+      // (res will matter later)
+      queueText(`Kael reached Level ${p.lvl}!`);
+    }
+  }
+
+  function xpToNext(lvl){
+    return 20 + (lvl-1)*10;
+  }
+
+  function queueText(text, ms=700){
+    game.queue.push({ type:"text", text, ms });
+  }
+
+  function queueAnim(fn, ms){
+    game.queue.push({ type:"anim", fn, ms });
+  }
+
+  function runQueue(){
+    if (game.queue.length === 0){
+      setBusy(false);
+      updateHUD();
+      return;
+    }
+    setBusy(true);
+    const step = game.queue.shift();
+    if (step.type === "text"){
+      setMessage(step.text);
+      updateHUD();
+      setTimeout(runQueue, step.ms);
+    } else if (step.type === "anim"){
+      const start = performance.now();
+      const dur = step.ms;
+      function tick(now){
+        const t = clamp((now - start)/dur, 0, 1);
+        step.fn(t);
+        if (t < 1) requestAnimationFrame(tick);
+        else setTimeout(runQueue, 40);
+      }
+      requestAnimationFrame(tick);
+    }
+  }
+
+  function endBattle(victory){
+    if (victory){
+      game.save.meta.battlesWon = (game.save.meta.battlesWon || 0) + 1;
+      // basic loot + xp
+      const xp = actors.enemy.legendary ? 35 : 15;
+      queueText(`${actors.enemy.name} was defeated!`);
+      queueText(`Kael gained ${xp} XP.`);
+      grantXP(xp);
+      // autosave after battle
+      queueText("Autosaving…", 400);
+      game.queue.push({
+        type:"anim",
+        ms: 250,
+        fn: (t) => {
+          // tiny flash to indicate save
+          actors.player.anim.flash = 0.25*(1-t);
+          if (t >= 1){
+            writeActorsToSave();
+            saveNow();
+            actors.player.anim.flash = 0;
+          }
+        }
+      });
+      queueText("A Slime appears.", 550);
+      // spawn new enemy at the end
+      game.queue.push({
+        type:"anim",
+        ms: 10,
+        fn: () => spawnEnemy(rollEncounter())
+      });
+    } else {
+      queueText(`Kael was defeated…`, 900);
+      queueText(`Autosaving…`, 400);
+      game.queue.push({
+        type:"anim",
+        ms: 250,
+        fn: (t) => {
+          actors.player.anim.flash = 0.25*(1-t);
+          if (t >= 1){
+            // revive for prototype
+            actors.player.hp = actors.player.maxHp;
+            writeActorsToSave();
+            saveNow();
+            actors.player.anim.flash = 0;
+          }
+        }
+      });
+      queueText("Kael stands back up. A Slime appears.", 650);
+      game.queue.push({ type:"anim", ms:10, fn:()=> spawnEnemy("slime") });
+    }
+  }
+
+  function rollEncounter(){
+    // Placeholder “legendary chance”
+    const roll = Math.random();
+    if (roll < 0.03) return "voidwisp";
+    return pick(["slime","slime","bandit","wisp"]);
+  }
+
+  function playerUseSkill(skillId){
+    if (game.busy) return;
+    const skill = SKILLS[skillId];
+    if (!skill) return;
+
+    const p = actors.player;
+    const e = actors.enemy;
+
+    // Turn order (simple): higher spd goes first; ties favor player
+    const playerFirst = (p.stats.spd >= e.spd);
+
+    game.queue.length = 0;
+
+    if (playerFirst){
+      doPlayerTurn(skillId);
+      // If enemy survives, enemy turn
+      game.queue.push({
+        type:"anim", ms:10, fn:()=> {
+          if (actors.enemy.hp > 0) doEnemyTurn();
+          else endBattle(true);
+        }
+      });
+    } else {
+      queueText(`${e.name} moves first!`, 650);
+      doEnemyTurn();
+      game.queue.push({
+        type:"anim", ms:10, fn:()=> {
+          if (actors.player.hp > 0) doPlayerTurn(skillId);
+          else endBattle(false);
+        }
+      });
+    }
+
+    // Finish
+    game.queue.push({
+      type:"anim", ms:10, fn:()=> {
+        if (actors.enemy.hp <= 0) endBattle(true);
+        else if (actors.player.hp <= 0) endBattle(false);
+      }
+    });
+
+    runQueue();
+  }
+
+  function doPlayerTurn(skillId){
+    const skill = SKILLS[skillId];
+    const p = actors.player;
+    const e = actors.enemy;
+
+    queueText(`${p.name} used ${skill.name}!`, 650);
+
+    if (skillId === "slash"){
+      // Lunge forward + hit spark + enemy squish
+      queueAnim((t)=> {
+        const tt = easeOutCubic(t);
+        p.anim.ox = lerp(0, 120, tt);
+        p.anim.oy = lerp(0, -10, tt);
+      }, 180);
+
+      queueAnim((t)=> {
+        // swing moment: spawn spark + enemy hit response
+        const tt = easeInOutQuad(t);
+        // sword “arc” illusion: brief wobble
+        p.anim.oy = -12 + Math.sin(tt*Math.PI)*6;
+        // enemy reacts
+        e.anim.flash = 0.35 * (1-tt);
+        e.anim.squash = lerp(1, 0.78, Math.sin(tt*Math.PI));
+        e.anim.ox = lerp(0, 14, Math.sin(tt*Math.PI));
+      }, 180);
+
+      queueAnim((t)=> {
+        const tt = easeInOutQuad(t);
+        p.anim.ox = lerp(120, 0, tt);
+        p.anim.oy = lerp(-10, 0, tt);
+        e.anim.ox = lerp(14, 0, tt);
+        e.anim.squash = lerp(0.78, 1, tt);
+      }, 220);
+
+      // Apply damage after the strike moment
+      game.queue.push({
+        type:"anim", ms:10, fn:()=> {
+          const dmg = calcDamage(p, e, skill);
+          e.hp = clamp(e.hp - dmg, 0, e.maxHp);
+          updateHUD();
+          queueText(`It dealt ${dmg} damage.`, 650);
+        }
+      });
+
+    } else if (skillId === "fire"){
+      // Cast + projectile + impact
+      queueAnim((t)=> {
+        const tt = easeInOutQuad(t);
+        p.anim.oy = lerp(0, -10, Math.sin(tt*Math.PI));
+        p.anim.flash = 0.18 * Math.sin(tt*Math.PI);
+      }, 220);
+
+      // Projectile state
+      const proj = { on:true, x:0.36, y:0.56, r:0 };
+      game.queue.push({
+        type:"anim",
+        ms: 360,
+        fn: (t)=>{
+          const tt = easeOutCubic(t);
+          proj.x = lerp(0.38, 0.68, tt);
+          proj.y = lerp(0.56, 0.46, tt);
+          proj.r = tt*8;
+          effects.fireball = proj;
+          if (t>=1) effects.fireball = null;
+        }
+      });
+
+      queueAnim((t)=> {
+        const tt = easeInOutQuad(t);
+        e.anim.flash = 0.5 * (1-tt);
+        e.anim.squash = lerp(1, 0.84, Math.sin(tt*Math.PI));
+        e.anim.oy = lerp(0, -10, Math.sin(tt*Math.PI));
+      }, 220);
+
+      game.queue.push({
+        type:"anim", ms:10, fn:()=> {
+          const dmg = calcDamage(p, e, skill);
+          e.hp = clamp(e.hp - dmg, 0, e.maxHp);
+          updateHUD();
+          queueText(`The flames dealt ${dmg} damage.`, 650);
+        }
+      });
+    }
+  }
+
+  function doEnemyTurn(){
+    const e = actors.enemy;
+    const p = actors.player;
+    const atk = enemyAttack();
+
+    queueText(`${e.name} used ${atk.name}!`, 650);
+
+    // Enemy “hop” forward and bonk
+    queueAnim((t)=> {
+      const tt = easeOutCubic(t);
+      e.anim.ox = lerp(0, -90, tt);
+      e.anim.oy = lerp(0, 12, tt);
+      e.anim.wobble = Math.sin(tt*Math.PI)*0.6;
+    }, 200);
+
+    queueAnim((t)=> {
+      const tt = easeInOutQuad(t);
+      // hit
+      p.anim.flash = 0.45*(1-tt);
+      p.anim.squash = lerp(1, 0.82, Math.sin(tt*Math.PI));
+      p.anim.ox = lerp(0, -12, Math.sin(tt*Math.PI));
+    }, 180);
+
+    queueAnim((t)=> {
+      const tt = easeInOutQuad(t);
+      e.anim.ox = lerp(-90, 0, tt);
+      e.anim.oy = lerp(12, 0, tt);
+      p.anim.ox = lerp(-12, 0, tt);
+      p.anim.squash = lerp(0.82, 1, tt);
+      e.anim.wobble = (1-tt)*0.4;
+    }, 220);
+
+    game.queue.push({
+      type:"anim", ms:10, fn:()=> {
+        p.hp = clamp(p.hp - atk.dmg, 0, p.maxHp);
+        updateHUD();
+        queueText(`Kael took ${atk.dmg} damage.`, 650);
+      }
+    });
+  }
+
+  btnSlash.addEventListener("click", () => playerUseSkill("slash"));
+  btnFire.addEventListener("click", () => playerUseSkill("fire"));
+
+  /********************
+   * Visuals (chunky pixel silhouette + arena)
+   ********************/
+  const effects = { fireball: null };
+
+  function drawArena(w,h){
+    // Slight top-down “arena plate”
+    // Background gradient
+    const g = ctx.createLinearGradient(0,0,0,h);
+    g.addColorStop(0, "#0f0f16");
+    g.addColorStop(1, "#0a0a0f");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,w,h);
+
+    // Distant haze
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(0,0,w,h*0.12);
+
+    // Ground ellipse (arena)
+    const cx = w*0.50;
+    const cy = h*0.66;
+    const rx = w*0.44;
+    const ry = h*0.18;
+
+    // Shadow ring
+    ctx.beginPath();
+    ctx.ellipse(cx, cy+8, rx, ry, 0, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fill();
+
+    // Main ground
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+    ctx.fillStyle = "#141420";
+    ctx.fill();
+
+    // Ground highlight
+    ctx.beginPath();
+    ctx.ellipse(cx, cy-6, rx*0.88, ry*0.70, 0, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fill();
+
+    // “Tile-ish” marks
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = 2;
+    for (let i=0;i<7;i++){
+      const t = i/6;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx*(0.25 + t*0.70), ry*(0.25 + t*0.70), 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+  }
+
+  function worldToScreen(nx, ny, w, h){
+    // Map normalized arena coords into screen coords with perspective feel.
+    // nx/ny are roughly within [0..1]
+    const baseX = nx * w;
+    const baseY = ny * h;
+    return { x: baseX, y: baseY };
+  }
+
+  function drawPixelRect(x,y,w,h, color){
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
+
+  function drawHitSpark(x,y, scale){
+    const s = 6*scale;
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(-s*0.5, -s*2.0, s, s*4.0);
+    ctx.fillRect(-s*2.0, -s*0.5, s*4.0, s);
+    ctx.fillStyle = "rgba(255,220,120,0.85)";
+    ctx.fillRect(-s*0.5, -s*1.5, s, s*3.0);
+    ctx.fillRect(-s*1.5, -s*0.5, s*3.0, s);
+    ctx.restore();
+  }
+
+  function drawPlayer(actor, w,h){
+    const p = actor;
+    const s = Math.min(w,h);
+    const base = worldToScreen(p.pos.x, p.pos.y, w,h);
+
+    // Pixel scale
+    const px = Math.floor(s * 0.012); // “chunky”
+    const size = px * 22;
+
+    const ox = p.anim.ox;
+    const oy = p.anim.oy + Math.sin(game.time.t*0.003)*2; // subtle idle
+    const squash = p.anim.squash || 1;
+
+    const x = base.x - size*0.5 + ox;
+    const y = base.y - size + oy;
+
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(base.x + ox, base.y + 10 + oy, size*0.32, size*0.10, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Flash overlay
+    const flash = p.anim.flash || 0;
+
+    // Colors (simple palette)
+    const armor = "#2f5b8a";
+    const armor2 = "#244663";
+    const skin = "#d6b38a";
+    const steel = "#cfd7e6";
+    const dark = "#0f1016";
+    const shield = "#6b4a2c";
+    const wood = "#8a5a34";
+
+    // Gender/body variant (very simple for now)
+    const bodyW = (p.look.gender === "f") ? (px*10) : (px*11);
+    const bodyH = (p.look.gender === "f") ? (px*12) : (px*12);
+
+    // Body (torso)
+    drawPixelRect(x + px*6, y + px*9, bodyW, bodyH*squash, armor);
+    drawPixelRect(x + px*7, y + px*10, bodyW-2*px, (bodyH-2*px)*squash, armor2);
+
+    // Head/helmet
+    const headType = p.look.head || 1;
+    // base helmet
+    drawPixelRect(x + px*8, y + px*3, px*7, px*6, steel);
+    // visor line
+    drawPixelRect(x + px*8, y + px*6, px*7, px*1, dark);
+    // headType variation
+    if (headType === 2){
+      // plume
+      drawPixelRect(x + px*11, y + px*1, px*1, px*2, "#a23b3b");
+      drawPixelRect(x + px*12, y + px*1, px*1, px*3, "#a23b3b");
+    } else if (headType === 3){
+      // horn nub
+      drawPixelRect(x + px*7, y + px*4, px*1, px*2, "#b9c2d4");
+      drawPixelRect(x + px*15, y + px*4, px*1, px*2, "#b9c2d4");
+    } else if (headType === 4){
+      // hood-ish wrap
+      drawPixelRect(x + px*8, y + px*3, px*7, px*2, "#3a2f4a");
+      drawPixelRect(x + px*8, y + px*5, px*1, px*4, "#3a2f4a");
+      drawPixelRect(x + px*14, y + px*5, px*1, px*4, "#3a2f4a");
+    }
+
+    // Arms
+    drawPixelRect(x + px*5, y + px*10, px*2, px*7*squash, armor2); // left arm
+    drawPixelRect(x + px*16, y + px*10, px*2, px*7*squash, armor2); // right arm
+
+    // Shield (front/left)
+    drawPixelRect(x + px*2, y + px*11, px*4, px*8*squash, shield);
+    drawPixelRect(x + px*3, y + px*12, px*2, px*6*squash, wood);
+
+    // Sword (right)
+    drawPixelRect(x + px*19, y + px*11, px*1, px*8*squash, steel);
+    drawPixelRect(x + px*18, y + px*18, px*3, px*1, "#a98b5a");
+
+    // Legs
+    drawPixelRect(x + px*8, y + px*21, px*3, px*4, armor2);
+    drawPixelRect(x + px*12, y + px*21, px*3, px*4, armor2);
+
+    // Flash overlay
+    if (flash > 0){
+      ctx.fillStyle = `rgba(255,255,255,${flash})`;
+      ctx.fillRect(x + px*2, y + px*3, px*20, px*22);
+    }
+  }
+
+  function drawEnemy(actor, w,h){
+    const e = actor;
+    const s = Math.min(w,h);
+    const base = worldToScreen(e.pos.x, e.pos.y, w,h);
+
+    const px = Math.floor(s * 0.012);
+    const size = px * 20;
+
+    const ox = e.anim.ox || 0;
+    const oy = (e.anim.oy || 0) + Math.sin(game.time.t*0.004)*3;
+    const squash = e.anim.squash || 1;
+    const flash = e.anim.flash || 0;
+    const wobble = e.anim.wobble || 0;
+
+    const x = base.x - size*0.5 + ox;
+    const y = base.y - size*0.8 + oy;
+
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(base.x + ox, base.y + 12 + oy, size*0.30, size*0.10, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Color by type
+    let c1 = "#38d26a";
+    let c2 = "#2aa655";
+    if (e.type === "wisp"){ c1 = "#9ad8ff"; c2 = "#4fb6ff"; }
+    if (e.type === "bandit"){ c1 = "#d6c07a"; c2 = "#b79c4f"; }
+    if (e.type === "voidwisp"){ c1 = "#b287ff"; c2 = "#6f3bd6"; }
+
+    // Slime-ish blob for ooze, otherwise simple blocky humanoid
+    if (e.type === "slime" || e.type === "voidwisp" || e.type === "wisp"){
+      // blob (pixel-ish ellipse)
+      const bw = size;
+      const bh = size * 0.70 * squash;
+      ctx.save();
+      ctx.translate(x + bw/2, y + bh/2);
+      ctx.rotate(wobble*0.08);
+
+      // main
+      ctx.fillStyle = c1;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw*0.42, bh*0.42, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // inner
+      ctx.fillStyle = c2;
+      ctx.beginPath();
+      ctx.ellipse(-bw*0.08, -bh*0.08, bw*0.30, bh*0.28, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // eyes
+      ctx.fillStyle = "#0f1016";
+      ctx.fillRect(-bw*0.12, -bh*0.05, bw*0.06, bh*0.10);
+      ctx.fillRect( bw*0.06, -bh*0.05, bw*0.06, bh*0.10);
+
+      // shine
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.beginPath();
+      ctx.ellipse(-bw*0.12, -bh*0.15, bw*0.12, bh*0.10, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // flash overlay
+      if (flash > 0){
+        ctx.fillStyle = `rgba(255,255,255,${flash})`;
+        ctx.beginPath();
+        ctx.ellipse(0,0,bw*0.44,bh*0.44,0,0,Math.PI*2);
+        ctx.fill();
+      }
+
+      // legendary marker
+      if (e.legendary){
+        ctx.fillStyle = "rgba(255,240,160,0.95)";
+        ctx.fillRect(bw*0.18, -bh*0.52, bw*0.14, bh*0.12);
+        ctx.fillRect(bw*0.23, -bh*0.60, bw*0.04, bh*0.20);
+      }
+
+      ctx.restore();
+    } else {
+      // bandit as blocky “person”
+      const bw = size*0.8;
+      const bh = size*1.0*squash;
+      const bx = x + size*0.10;
+      const by = y;
+
+      // body
+      drawPixelRect(bx + px*4, by + px*8, px*10, px*12*squash, c1);
+      drawPixelRect(bx + px*5, by + px*9, px*8, px*10*squash, c2);
+      // head
+      drawPixelRect(bx + px*6, by + px*3, px*6, px*5, "#cfa57a");
+      drawPixelRect(bx + px*6, by + px*5, px*6, px*1, "#0f1016");
+      // weapon
+      drawPixelRect(bx + px*15, by + px*10, px*1, px*8*squash, "#cfd7e6");
+
+      if (flash > 0){
+        ctx.fillStyle = `rgba(255,255,255,${flash})`;
+        ctx.fillRect(bx + px*3, by + px*3, px*14, px*18);
+      }
+    }
+  }
+
+  function drawEffects(w,h){
+    const fb = effects.fireball;
+    if (!fb) return;
+    const p = worldToScreen(fb.x, fb.y, w,h);
+    const r = 12 + fb.r;
+    // outer glow
+    ctx.fillStyle = "rgba(255,120,60,0.25)";
+    ctx.beginPath(); ctx.arc(p.x, p.y, r*1.6, 0, Math.PI*2); ctx.fill();
+    // core
+    ctx.fillStyle = "rgba(255,210,120,0.95)";
+    ctx.beginPath(); ctx.arc(p.x, p.y, r*0.85, 0, Math.PI*2); ctx.fill();
+    // hot center
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.arc(p.x - r*0.15, p.y - r*0.15, r*0.35, 0, Math.PI*2); ctx.fill();
+  }
+
+  function drawFrame(){
+    const w = canvas.width;
+    const h = canvas.height;
+
+    drawArena(w,h);
+    // Draw order: enemy behind? In top-down feel, higher y means closer.
+    const pY = actors.player.pos.y + (actors.player.anim.oy||0)/h;
+    const eY = actors.enemy.pos.y + (actors.enemy.anim.oy||0)/h;
+
+    // Sort by y for “depth”
+    const drawList = [
+      { a: actors.player, fn: drawPlayer, depth: pY },
+      { a: actors.enemy, fn: drawEnemy,  depth: eY }
+    ].sort((A,B)=> A.depth - B.depth);
+
+    // Effects under characters a bit
+    drawEffects(w,h);
+
+    // Draw actors
+    for (const it of drawList){
+      it.fn(it.a, w,h);
+    }
+
+    // Spark hint on melee “impact” (when enemy is flashing strongly)
+    if ((actors.enemy.anim.flash||0) > 0.28){
+      const base = worldToScreen(actors.enemy.pos.x, actors.enemy.pos.y, w,h);
+      drawHitSpark(base.x - 40, base.y - 70, 1.2);
+    }
+    if ((actors.player.anim.flash||0) > 0.28){
+      const base = worldToScreen(actors.player.pos.x, actors.player.pos.y, w,h);
+      drawHitSpark(base.x + 35, base.y - 90, 1.0);
+    }
+  }
+
+  /********************
+   * Main Loop
+   ********************/
+  let last = performance.now();
+  function loop(now){
+    const dt = now - last; last = now;
+    game.time.t += dt;
+    game.time.dt = dt;
+
+    // decay flashes smoothly
+    actors.player.anim.flash = clamp((actors.player.anim.flash||0) - dt*0.0012, 0, 1);
+    actors.enemy.anim.flash  = clamp((actors.enemy.anim.flash||0) - dt*0.0012, 0, 1);
+
+    updateHUD();
+    drawFrame();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Initialize
+  updateHUD();
+  setMessage("A Slime appears.");
+  spawnEnemy("slime");
+  writeActorsToSave();
+  saveNow();
+  requestAnimationFrame(loop);
+
+})();
 </script>
-
 </body>
 </html>
