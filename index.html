@@ -1,1413 +1,814 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>Ironclad — Combat Prototype</title>
   <style>
     :root{
       --bg:#0b0b10;
-      --panel:rgba(255,255,255,.06);
-      --panel2:rgba(255,255,255,.09);
-      --text:rgba(255,255,255,.9);
-      --muted:rgba(255,255,255,.65);
-      --accent:rgba(170,140,255,.9);
-      --good:rgba(120,220,120,.9);
-      --bad:rgba(255,120,120,.9);
-      --line:rgba(255,255,255,.14);
+      --panel:#12121a;
+      --panel2:#151522;
+      --ink:#e9e9f2;
+      --muted:#a6a6c2;
+      --accent:#8a7dff;
+      --accent2:#4ee59a;
+      --danger:#ff5d7a;
+      --shadow: 0 12px 40px rgba(0,0,0,.55);
+      --r:18px;
+      --px: 2px; /* pixel upscale */
+      --font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
     }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
-      background: radial-gradient(1200px 700px at 50% -10%, rgba(170,140,255,.18), transparent 60%),
-                  radial-gradient(900px 500px at 20% 30%, rgba(120,220,120,.10), transparent 60%),
-                  var(--bg);
-      color:var(--text);
-      min-height:100vh;
-      display:flex;
-      justify-content:center;
-    }
-    .wrap{
-      width:min(980px, 100%);
-      padding:14px 12px 28px;
-    }
+
+    html,body{height:100%;background: radial-gradient(1200px 700px at 50% 0%, #141425 0%, var(--bg) 55%) fixed; color:var(--ink); margin:0; font-family:var(--font);}
+    .wrap{max-width:980px;margin:0 auto;padding:14px 12px 22px; display:flex; flex-direction:column; gap:12px;}
     .topbar{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-bottom:10px;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     }
-    .brand{
-      font-weight:800;
-      letter-spacing:.18em;
-      color:rgba(255,255,255,.75);
-      margin-right:auto;
-    }
-    .pill{
-      background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
-      border:1px solid var(--line);
-      padding:10px 12px;
+    .chip{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.12);
       border-radius:999px;
-      font-size:12px;
-      color:rgba(255,255,255,.78);
-    }
-    .btn{
-      background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.06));
-      border:1px solid rgba(255,255,255,.16);
-      color:rgba(255,255,255,.9);
-      border-radius:16px;
       padding:10px 12px;
-      font-weight:700;
-      letter-spacing:.02em;
-      cursor:pointer;
-      touch-action:manipulation;
+      box-shadow: var(--shadow);
+      color:var(--ink);
+      display:inline-flex; gap:8px; align-items:center;
+      font-size:13px;
     }
-    .btn:active{transform:translateY(1px)}
+    .chip b{font-weight:700;}
+    .btn{
+      -webkit-tap-highlight-color: transparent;
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.14);
+      color:var(--ink);
+      border-radius:14px;
+      padding:12px 14px;
+      font-family:var(--font);
+      font-size:16px;
+      box-shadow: var(--shadow);
+      cursor:pointer;
+      user-select:none;
+    }
+    .btn:active{transform:translateY(1px);}
+    .btn.secondary{opacity:.92}
+    .btn.purple{border-color: rgba(138,125,255,.45); box-shadow:0 14px 40px rgba(138,125,255,.14);}
+    .btn.green{border-color: rgba(78,229,154,.45); box-shadow:0 14px 40px rgba(78,229,154,.12);}
+    .btn.red{border-color: rgba(255,93,122,.45); box-shadow:0 14px 40px rgba(255,93,122,.12);}
+    .btn:disabled{opacity:.45; filter:saturate(.7); cursor:not-allowed; transform:none;}
+
     .grid{
       display:grid;
       grid-template-columns: 1.2fr .8fr;
       gap:12px;
     }
-    @media (max-width: 860px){
-      .grid{grid-template-columns: 1fr}
+    @media (max-width:880px){
+      .grid{grid-template-columns:1fr; }
     }
 
     .card{
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      border:1px solid rgba(255,255,255,.14);
-      border-radius:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
       overflow:hidden;
-      box-shadow: 0 12px 40px rgba(0,0,0,.35);
     }
-    .stage{
-      padding:10px;
+    .card .hd{
+      padding:12px 12px 10px;
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.12);
     }
+    .title{
+      display:flex; flex-direction:column; gap:2px;
+    }
+    .title .k{font-size:12px;color:var(--muted);}
+    .title .v{font-size:14px;font-weight:700; letter-spacing:.3px;}
+    .content{padding:12px;}
+
+    /* Pixel canvas wrapper */
+    .stageWrap{padding:12px; display:flex; flex-direction:column; gap:10px;}
+    .stageTop{
+      display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;
+    }
+    .stageTop .statPill{
+      background:rgba(0,0,0,.22);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:14px;
+      padding:10px 10px;
+      min-width: 240px;
+    }
+    .row{display:flex; justify-content:space-between; gap:10px; align-items:center; font-size:13px;}
+    .row .muted{color:var(--muted);}
+    .bars{margin-top:8px; display:flex; flex-direction:column; gap:7px;}
+    .bar{
+      height:10px;
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(0,0,0,.35);
+      border-radius:999px;
+      overflow:hidden;
+      position:relative;
+    }
+    .bar>span{
+      position:absolute; left:0; top:0; bottom:0;
+      width:50%;
+      border-radius:999px;
+    }
+    .bar.hp>span{background: linear-gradient(90deg, rgba(255,93,122,.95), rgba(255,93,122,.55));}
+    .bar.mp>span{background: linear-gradient(90deg, rgba(138,125,255,.95), rgba(138,125,255,.55));}
+
+    .battleFrame{
+      position:relative;
+      width:100%;
+      aspect-ratio: 16 / 9;
+      background: radial-gradient(900px 500px at 50% 30%, rgba(78,229,154,.12) 0%, rgba(0,0,0,0) 60%),
+                  linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.25));
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 16px;
+      overflow:hidden;
+    }
+
+    /* This canvas is pixel art; we scale it up with image-rendering */
     canvas{
       width:100%;
-      height:auto;
+      height:100%;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
       display:block;
-      background: radial-gradient(1200px 420px at 50% 110%, rgba(0,0,0,.35), transparent 60%),
-                  linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+    }
+
+    /* Center-lower HUD near character */
+    .hudNear{
+      position:absolute;
+      left: 14%;
+      bottom: 10%;
+      transform: translateX(-0%);
+      width:min(360px, 70%);
+      pointer-events:none;
+      background: rgba(0,0,0,.28);
+      border:1px solid rgba(255,255,255,.12);
       border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      touch-action:manipulation;
-    }
-    .right{
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .sectionTitle{
-      font-size:12px;
-      color:var(--muted);
-      letter-spacing:.12em;
-      text-transform:uppercase;
-      margin:0 0 6px;
-    }
-    .actions{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    .actions .btn{
-      padding:14px 12px;
-      border-radius:18px;
-      font-size:16px;
-    }
-    .actions .btn:disabled{
-      opacity:.45;
-      cursor:not-allowed;
-    }
-    .smallActions{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    .smallActions .btn{
-      font-size:13px;
       padding:10px 10px;
-      border-radius:14px;
+      backdrop-filter: blur(2px);
     }
+
     .log{
+      font-size:15px;
+      line-height:1.45;
+      color:var(--ink);
+      background: rgba(0,0,0,.20);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 16px;
       padding:12px;
-      min-height:92px;
-      background:linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.12));
-      border-top:1px solid rgba(255,255,255,.10);
-      color:rgba(255,255,255,.86);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size:14px;
-      line-height:1.35;
+      min-height:140px;
       white-space:pre-wrap;
     }
-    .hint{
-      font-size:12px;
-      color:rgba(255,255,255,.65);
-    }
-    .row{
-      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
-    }
-    .chip{
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.06);
-      padding:7px 10px;
-      border-radius:999px;
-      font-size:12px;
-      color:rgba(255,255,255,.75);
-    }
-    .targetRow{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      margin-top:10px;
-    }
-    select{
-      width:100%;
-      padding:10px 10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(0,0,0,.22);
-      color:rgba(255,255,255,.86);
-      font-weight:700;
-    }
-    option{background:#101018}
 
-    .statGrid{
+    .actions{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:8px 10px;
-      margin-top:10px;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
     }
-    .stat{
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(0,0,0,.20);
-      border-radius:14px;
-      padding:10px 10px;
+    .actions .btn{padding:14px 12px; font-size:18px;}
+    .sub{
+      margin-top:8px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:space-between;
+      align-items:center;
     }
-    .stat .k{
-      font-size:11px;
-      letter-spacing:.14em;
-      text-transform:uppercase;
-      color:rgba(255,255,255,.60);
-      margin-bottom:6px;
+    .hint{color:var(--muted); font-size:12px;}
+    .targets{display:flex; gap:10px; width:100%;}
+    .targets .btn{flex:1; font-size:15px; padding:12px;}
+    .badge{
+      padding:4px 8px;border-radius:999px;
+      border:1px solid rgba(255,255,255,.14);
+      color:var(--muted);
+      font-size:12px;
     }
-    .stat .v{
-      font-family: ui-monospace, Menlo, Consolas, monospace;
-      font-weight:900;
-      color:rgba(255,255,255,.90);
-      font-size:16px;
+    .turn{
+      color: var(--accent2);
+      font-weight:700;
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div class="brand">IRONCLAD</div>
-      <div class="pill">Combat Prototype v0.3 — Turn-Based + Targeting</div>
-      <button class="btn" id="resetBtn">Reset Battle</button>
-      <button class="btn" id="toggleDebugBtn">Debug: OFF</button>
-    </div>
+<div class="wrap">
 
-    <div class="grid">
-      <div class="card stage">
-        <canvas id="c" width="960" height="540" aria-label="Battle canvas"></canvas>
-        <div class="log" id="log"></div>
-      </div>
-
-      <div class="card right">
-        <div>
-          <p class="sectionTitle">Actions</p>
-          <div class="actions">
-            <button class="btn" id="slashBtn">Slash</button>
-            <button class="btn" id="fireBtn">Fire</button>
-            <button class="btn" id="waterBtn">Water</button>
-            <button class="btn" id="healBtn">Heal</button>
-          </div>
-          <div class="hint" style="margin-top:8px;">
-            Tap an enemy on the battlefield to <b>select target</b>. Order: <b>Salem x2</b> → Enemy 1 → Enemy 2.
-          </div>
-
-          <div class="targetRow">
-            <button class="btn" id="t1Btn">Target: Enemy 1</button>
-            <button class="btn" id="t2Btn">Target: Enemy 2</button>
-          </div>
-          <div class="hint" style="margin-top:8px;">
-            Enemy stats are hidden for now (background). You’ll feel them through their attacks.
-          </div>
-        </div>
-
-        <div>
-          <p class="sectionTitle">Enemy Setup (2 on screen)</p>
-          <div class="row">
-            <div style="flex:1; min-width:140px;">
-              <div class="hint" style="margin-bottom:6px;">Enemy 1</div>
-              <select id="enemy1Sel">
-                <option value="slime" selected>Slime (15 HP)</option>
-                <option value="bandit">Bandit (15 HP)</option>
-                <option value="engorge">ENGORGE (60 HP)</option>
-              </select>
-            </div>
-            <div style="flex:1; min-width:140px;">
-              <div class="hint" style="margin-bottom:6px;">Enemy 2</div>
-              <select id="enemy2Sel">
-                <option value="slime" selected>Slime (15 HP)</option>
-                <option value="bandit">Bandit (15 HP)</option>
-                <option value="engorge">ENGORGE (60 HP)</option>
-              </select>
-            </div>
-          </div>
-          <div class="smallActions" style="margin-top:10px;">
-            <button class="btn" id="applyEnemiesBtn">Apply Enemies</button>
-            <button class="btn" id="startBtn">Start / Continue</button>
-          </div>
-        </div>
-
-        <div>
-          <p class="sectionTitle">Salem Stat Sheet (Visible)</p>
-          <div class="row">
-            <div class="chip" id="turnChip">Turn: —</div>
-            <div class="chip" id="phaseChip">Phase: —</div>
-          </div>
-
-          <div class="statGrid" id="statGrid"></div>
-
-          <div class="hint" style="margin-top:10px;">
-            Heal costs <b>3 mana</b>. Salem starts <b>32 HP</b>, <b>25 mana</b>.
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="topbar">
+    <div class="chip"><b>IRONCLAD</b></div>
+    <div class="chip"><span class="muted">Combat Prototype</span> <b>v0.2</b></div>
+    <button class="btn purple" id="startBtn">Start / Continue</button>
+    <button class="btn secondary" id="resetBtn">Reset Battle</button>
+    <button class="btn secondary" id="debugBtn">Debug: OFF</button>
   </div>
+
+  <div class="grid">
+
+    <div class="card">
+      <div class="hd">
+        <div class="title">
+          <div class="k">Battlefield</div>
+          <div class="v">Side-angled top view • Tap an enemy to target</div>
+        </div>
+        <div class="badge" id="roundBadge">Round 1</div>
+      </div>
+
+      <div class="stageWrap">
+        <div class="battleFrame" id="battleFrame">
+          <canvas id="c"></canvas>
+
+          <!-- HUD near player (center-lower-ish) -->
+          <div class="hudNear">
+            <div class="row">
+              <div><b id="pName">Salem The Pib cox</b></div>
+              <div class="muted">Lvl <span id="pLvl">7</span> • XP <span id="pXp">25</span></div>
+            </div>
+            <div class="bars">
+              <div class="row"><span class="muted">HP</span><span class="muted"><span id="pHpNow">32</span>/<span id="pHpMax">32</span></span></div>
+              <div class="bar hp"><span id="pHpBar"></span></div>
+              <div class="row"><span class="muted">MP</span><span class="muted"><span id="pMpNow">25</span>/<span id="pMpMax">25</span></span></div>
+              <div class="bar mp"><span id="pMpBar"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="log" id="log"></div>
+
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="hd">
+        <div class="title">
+          <div class="k">Actions</div>
+          <div class="v">Turn-based • Order: <span class="turn">Salem ×2 → Enemy 1 → Enemy 2</span></div>
+        </div>
+        <div class="badge" id="phaseBadge">Paused</div>
+      </div>
+
+      <div class="content">
+        <div class="actions">
+          <button class="btn" id="slashBtn">Slash</button>
+          <button class="btn" id="fireBtn">Fire</button>
+          <button class="btn" id="waterBtn">Water</button>
+          <button class="btn green" id="healBtn">Heal</button>
+        </div>
+
+        <div class="sub">
+          <div class="hint" id="hint">Tap <b>Start / Continue</b> to begin. Then choose a target and an action.</div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="targets">
+          <button class="btn purple" id="t1Btn">Target: Enemy 1</button>
+          <button class="btn purple" id="t2Btn">Target: Enemy 2</button>
+        </div>
+
+        <div style="height:10px"></div>
+        <div class="hint">
+          Enemy stats are hidden (background) for now — you’ll learn them through damage and behavior.
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <script>
 (() => {
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
+  // -------------------------
+  // State / Rules (Joseph spec)
+  // -------------------------
+  const RNG = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
 
-  const logEl = document.getElementById('log');
-  const turnChip = document.getElementById('turnChip');
-  const phaseChip = document.getElementById('phaseChip');
-  const statGrid = document.getElementById('statGrid');
-
-  const slashBtn = document.getElementById('slashBtn');
-  const fireBtn  = document.getElementById('fireBtn');
-  const waterBtn = document.getElementById('waterBtn');
-  const healBtn  = document.getElementById('healBtn');
-
-  const enemy1Sel = document.getElementById('enemy1Sel');
-  const enemy2Sel = document.getElementById('enemy2Sel');
-  const applyEnemiesBtn = document.getElementById('applyEnemiesBtn');
-  const startBtn = document.getElementById('startBtn');
-
-  const t1Btn = document.getElementById('t1Btn');
-  const t2Btn = document.getElementById('t2Btn');
-
-  const resetBtn = document.getElementById('resetBtn');
-  const toggleDebugBtn = document.getElementById('toggleDebugBtn');
-
-  // ---------- Utilities ----------
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-  function pushLog(line){
-    logEl.textContent = (line + "\n" + logEl.textContent).slice(0, 1600);
-  }
-
-  // ---------- Sprites ----------
-  function makeSprite(drawFn, w=32, h=32){
-    const off = document.createElement('canvas');
-    off.width = w; off.height = h;
-    const g = off.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    drawFn(g, w, h);
-    return off;
-  }
-
-  const sprites = {
-    knight: makeSprite((g,w,h) => {
-      g.clearRect(0,0,w,h);
-      g.fillStyle = 'rgba(0,0,0,.35)';
-      g.fillRect(8, 25, 16, 4);
-      g.fillStyle = '#50637a';
-      g.fillRect(11, 14, 10, 10);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(12, 8, 8, 6);
-      g.fillStyle = '#2a323c';
-      g.fillRect(12, 11, 8, 1);
-      g.fillStyle = '#6b4b2a';
-      g.fillRect(6, 14, 5, 10);
-      g.fillStyle = '#3a2816';
-      g.fillRect(6, 18, 5, 1);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(22, 13, 2, 11);
-      g.fillStyle = '#2a323c';
-      g.fillRect(21, 13, 4, 1);
-      g.fillStyle = '#2a323c';
-      g.fillRect(11, 24, 4, 2);
-      g.fillRect(17, 24, 4, 2);
-    }),
-    slime: makeSprite((g,w,h) => {
-      g.clearRect(0,0,w,h);
-      g.fillStyle = 'rgba(0,0,0,.35)';
-      g.fillRect(8, 24, 16, 4);
-      g.fillStyle = '#6d66ff';
-      g.fillRect(9, 12, 14, 12);
-      g.fillStyle = '#5a54d8';
-      g.fillRect(9, 18, 14, 6);
-      g.fillStyle = '#1b1b2b';
-      g.fillRect(12, 16, 2, 2);
-      g.fillRect(18, 16, 2, 2);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(15, 19, 2, 1);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(24, 10, 1, 1);
-    }),
-    bandit: makeSprite((g,w,h) => {
-      g.clearRect(0,0,w,h);
-      g.fillStyle = 'rgba(0,0,0,.35)';
-      g.fillRect(8, 25, 16, 4);
-      g.fillStyle = '#3f2a2a';
-      g.fillRect(10, 12, 12, 13);
-      g.fillStyle = '#2a1b1b';
-      g.fillRect(11, 8, 10, 6);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(13, 10, 6, 2);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(22, 16, 2, 6);
-    }),
-    engorge: makeSprite((g,w,h) => {
-      g.clearRect(0,0,w,h);
-      g.fillStyle = 'rgba(0,0,0,.35)';
-      g.fillRect(6, 25, 20, 4);
-      g.fillStyle = '#7b2fd6';
-      g.fillRect(6, 10, 20, 15);
-      g.fillStyle = '#5e1fb0';
-      g.fillRect(6, 18, 20, 7);
-      g.fillStyle = '#12081e';
-      g.fillRect(11, 16, 2, 2);
-      g.fillRect(19, 16, 2, 2);
-      g.fillStyle = '#cfd6df';
-      g.fillRect(14, 20, 4, 1);
-    }),
-    tree: makeSprite((g,w,h) => {
-      g.clearRect(0,0,w,h);
-      g.fillStyle = '#5b3a1e';
-      g.fillRect(14, 16, 4, 12);
-      g.fillStyle = '#2f7a3b';
-      g.fillRect(8, 8, 16, 10);
-      g.fillStyle = '#255f2e';
-      g.fillRect(10, 10, 12, 8);
-    })
+  const player = {
+    name: "Salem The Pib cox",
+    hp: 32, hpMax: 32,
+    mp: 25, mpMax: 25,
+    lvl: 7, xp: 25
   };
 
-  // ---------- Game State ----------
-  const state = {
-    debug: false,
-    running: false,
-    waitingForPlayer: false,
-    busy: false,
-    frame: 0,
-
-    selectedTarget: 0, // 0 = enemy1, 1 = enemy2
-
-    salem: {
-      name: "Salem The Pib cox",
-      level: 7,
-
-      hp: 32, hpMax: 32,
-      mp: 25, mpMax: 25,
-
-      // "real stat sheet" (these are editable later; for now hard-coded)
-      str: 10,
-      dex: 8,
-      int: 9,
-      vit: 11,
-      def: 6,
-      res: 5,
-      crit: 8,      // %
-      haste: 0,     // later
-    },
-
-    enemies: [],
-
-    // 0: Salem action 1, 1: Salem action 2, 2: enemy1, 3: enemy2
-    turnIndex: 0,
-
-    anim: null,
-
-    // hitboxes updated every render
-    hitboxes: {
-      e1: null,
-      e2: null
-    }
-  };
-
-  function derivedStats(){
-    const s = state.salem;
-
-    // simple, consistent, and tweakable:
-    const atk = Math.round(4 + s.str * 0.8);
-    const spAtk = Math.round(4 + s.int * 0.8);
-    const armor = Math.round(2 + s.def * 0.9);
-    const ward = Math.round(2 + s.res * 0.9);
-
-    return { atk, spAtk, armor, ward };
-  }
-
-  function renderStatSheet(){
-    const s = state.salem;
-    const d = derivedStats();
-
-    const items = [
-      { k:"Name", v:s.name },
-      { k:"Level", v:String(s.level) },
-      { k:"HP", v:`${s.hp}/${s.hpMax}` },
-      { k:"MP", v:`${s.mp}/${s.mpMax}` },
-
-      { k:"STR", v:String(s.str) },
-      { k:"DEX", v:String(s.dex) },
-      { k:"INT", v:String(s.int) },
-      { k:"VIT", v:String(s.vit) },
-
-      { k:"DEF", v:String(s.def) },
-      { k:"RES", v:String(s.res) },
-      { k:"Crit", v:`${s.crit}%` },
-      { k:"Haste", v:`${s.haste}%` },
-
-      { k:"ATK", v:String(d.atk) },
-      { k:"SP ATK", v:String(d.spAtk) },
-      { k:"Armor", v:String(d.armor) },
-      { k:"Ward", v:String(d.ward) }
-    ];
-
-    statGrid.innerHTML = items.map(it => `
-      <div class="stat">
-        <div class="k">${it.k}</div>
-        <div class="v">${escapeHtml(it.v)}</div>
-      </div>
-    `).join("");
-  }
-
-  function escapeHtml(str){
-    return String(str)
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#39;");
-  }
-
-  function makeEnemy(kind){
-    if(kind === 'slime'){
-      return { kind:'slime', name:'Slime', hp:15, hpMax:15, alive:true, ai:'auto', cast:0 };
-    }
-    if(kind === 'bandit'){
-      return { kind:'bandit', name:'Bandit', hp:15, hpMax:15, alive:true, ai:'auto', cast:0 };
-    }
-    return { kind:'engorge', name:'ENGORGE', hp:60, hpMax:60, alive:true, ai:'engorge', cast:0 };
-  }
-
-  function applyEnemies(){
-    state.enemies = [ makeEnemy(enemy1Sel.value), makeEnemy(enemy2Sel.value) ];
-    state.selectedTarget = 0;
-    pushLog(`Two enemies ready. (Stats hidden)`);
-    pushLog(`Tap an enemy to target. Current target: Enemy 1.`);
-    state.turnIndex = 0;
-    state.running = false;
-    state.waitingForPlayer = true;
-    updateUI();
-    render();
-  }
-
-  // ---------- Layout ----------
-  function layout(){
-    const W = canvas.width, H = canvas.height;
-    const field = {
-      x: W*0.08,
-      y: H*0.18,
-      w: W*0.84,
-      h: H*0.46,
-      topInset: W*0.09
+  function makeEnemy(type, label){
+    if(type==="slime") return { type, label, hp:15, hpMax:15, alive:true };
+    if(type==="bandit") return { type, label, hp:15, hpMax:15, alive:true };
+    if(type==="wisp") return { type, label, hp:15, hpMax:15, alive:true };
+    if(type==="engorge") return {
+      type, label,
+      hp:60, hpMax:60, alive:true,
+      mindflayCounter: 0
     };
-
-    const salemPos = { x: field.x + field.w*0.30, y: field.y + field.h*0.64, scale: 3.0 };
-
-    const e1Pos = { x: field.x + field.w*0.70, y: field.y + field.h*0.45, scale: state.enemies[0]?.kind === 'engorge' ? 3.6 : 3.0 };
-    const e2Pos = { x: field.x + field.w*0.78, y: field.y + field.h*0.66, scale: state.enemies[1]?.kind === 'engorge' ? 3.6 : 3.0 };
-
-    // bring HP/MP closer to Salem (center-lower near character)
-    const hud = { x: field.x + field.w*0.16, y: field.y + field.h*0.73, w: field.w*0.48, h: 74 };
-
-    return { field, salemPos, e1Pos, e2Pos, hud, W, H };
+    return { type, label, hp:15, hpMax:15, alive:true };
   }
 
-  // ---------- Drawing ----------
-  function drawRoundedRect(x,y,w,h,r){
+  let enemies = [ makeEnemy("slime","Enemy 1"), makeEnemy("bandit","Enemy 2") ];
+
+  // Turn order: Salem (action 1), Salem (action 2), Enemy 1, Enemy 2
+  // No continuous loop; it advances only when you press Start/Continue or take an action.
+  const turnOrder = ["P1","P2","E1","E2"];
+  let turnIndex = 0;
+
+  let running = false;        // must be true to act
+  let waitingForPlayer = true; // when current turn is P1 or P2
+  let targetIndex = 0;        // 0 or 1
+  let round = 1;
+  let debug = false;
+
+  // -------------------------
+  // UI handles
+  // -------------------------
+  const logEl = document.getElementById("log");
+  const startBtn = document.getElementById("startBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const debugBtn = document.getElementById("debugBtn");
+  const phaseBadge = document.getElementById("phaseBadge");
+  const roundBadge = document.getElementById("roundBadge");
+  const hintEl = document.getElementById("hint");
+
+  const slashBtn = document.getElementById("slashBtn");
+  const fireBtn  = document.getElementById("fireBtn");
+  const waterBtn = document.getElementById("waterBtn");
+  const healBtn  = document.getElementById("healBtn");
+
+  const t1Btn = document.getElementById("t1Btn");
+  const t2Btn = document.getElementById("t2Btn");
+
+  // Player HUD
+  const pName = document.getElementById("pName");
+  const pLvl  = document.getElementById("pLvl");
+  const pXp   = document.getElementById("pXp");
+  const pHpNow= document.getElementById("pHpNow");
+  const pHpMax= document.getElementById("pHpMax");
+  const pMpNow= document.getElementById("pMpNow");
+  const pMpMax= document.getElementById("pMpMax");
+  const pHpBar= document.getElementById("pHpBar");
+  const pMpBar= document.getElementById("pMpBar");
+
+  // Canvas
+  const canvas = document.getElementById("c");
+  const frame = document.getElementById("battleFrame");
+  const ctx = canvas.getContext("2d");
+
+  // Internal pixel resolution (fixed for crisp art)
+  const W = 320, H = 180;
+  canvas.width = W;
+  canvas.height = H;
+
+  // -------------------------
+  // Logging
+  // -------------------------
+  const LOG_MAX = 10;
+  let logLines = [];
+
+  function log(line){
+    logLines.push(line);
+    if(logLines.length>LOG_MAX) logLines.shift();
+    logEl.textContent = logLines.join("\n");
+  }
+
+  // -------------------------
+  // Rendering (pixel art-ish, no block placeholders)
+  // -------------------------
+  // Scene layout: angled "field" plane with grid; player + 2 enemies; trees in background.
+  // Tap/click enemies on canvas to target.
+  const scene = {
+    // positions in "field coordinates"
+    player: { x: 60, y: 98 },
+    enemy1: { x: 230, y: 78 },
+    enemy2: { x: 255, y: 98 },
+    // selection ring animation
+    ringPulse: 0
+  };
+
+  // Simple sprites drawn in pixels
+  function drawTree(px,py){
+    // trunk
+    ctx.fillStyle = "#5c3a24";
+    ctx.fillRect(px+3, py+8, 3, 7);
+    // leaves
+    ctx.fillStyle = "#2bd17e";
+    ctx.fillRect(px+1, py+2, 7, 7);
+    ctx.fillRect(px+0, py+4, 9, 5);
+  }
+
+  function drawKnight(px,py){
+    // boots
+    ctx.fillStyle="#2a2a35";
+    ctx.fillRect(px+3,py+18,3,2);
+    ctx.fillRect(px+8,py+18,3,2);
+    // body
+    ctx.fillStyle="#5aa7ff";
+    ctx.fillRect(px+3,py+8,8,10);
+    // head
+    ctx.fillStyle="#d9d9e6";
+    ctx.fillRect(px+4,py+4,6,4);
+    // helmet stripe
+    ctx.fillStyle="#9fa0b8";
+    ctx.fillRect(px+4,py+5,6,1);
+    // sword
+    ctx.fillStyle="#cfd2e6";
+    ctx.fillRect(px+12,py+9,2,8);
+    ctx.fillStyle="#8a6b3f";
+    ctx.fillRect(px+12,py+17,2,2);
+    // shield
+    ctx.fillStyle="#8a6b3f";
+    ctx.fillRect(px+0,py+9,3,7);
+    ctx.fillStyle="#3a2a18";
+    ctx.fillRect(px+1,py+10,1,5);
+  }
+
+  function drawSlime(px,py,color="#7c5bff"){
+    // blob
+    ctx.fillStyle=color;
+    ctx.fillRect(px+1,py+10,12,8);
+    ctx.fillRect(px+2,py+8,10,4);
+    ctx.fillRect(px+4,py+6,6,3);
+    // face
+    ctx.fillStyle="#1b1b24";
+    ctx.fillRect(px+4,py+12,2,2);
+    ctx.fillRect(px+9,py+12,2,2);
+    ctx.fillRect(px+6,py+15,3,1);
+    // shine
+    ctx.fillStyle="rgba(255,255,255,.25)";
+    ctx.fillRect(px+3,py+9,3,2);
+  }
+
+  function drawBandit(px,py){
+    // body
+    ctx.fillStyle="#a06a3a";
+    ctx.fillRect(px+3,py+9,8,9);
+    // head
+    ctx.fillStyle="#d9c4aa";
+    ctx.fillRect(px+5,py+5,5,4);
+    // hood
+    ctx.fillStyle="#2b2b35";
+    ctx.fillRect(px+4,py+4,7,2);
+    ctx.fillRect(px+4,py+4,2,5);
+    // dagger
+    ctx.fillStyle="#cfd2e6";
+    ctx.fillRect(px+12,py+10,2,6);
+  }
+
+  function drawSelectionRing(px,py,alive=true){
+    if(!alive) return;
+    const t = scene.ringPulse;
+    const r = 10 + Math.sin(t)*1.2;
+    ctx.strokeStyle="rgba(138,125,255,.85)";
+    ctx.lineWidth=2;
     ctx.beginPath();
-    ctx.moveTo(x+r,y);
-    ctx.arcTo(x+w,y,x+w,y+h,r);
-    ctx.arcTo(x+w,y+h,x,y+h,r);
-    ctx.arcTo(x,y+h,x,y,r);
-    ctx.arcTo(x,y,x+w,y,r);
-    ctx.closePath();
-  }
-
-  function drawBar(x,y,w,h, pct, label, color){
-    ctx.fillStyle = 'rgba(255,255,255,.10)';
-    drawRoundedRect(x,y,w,h,10);
-    ctx.fill();
-
-    const fw = Math.max(0, Math.floor((w-6) * pct));
-    ctx.fillStyle = color;
-    drawRoundedRect(x+3,y+3, fw, h-6, 9);
-    ctx.fill();
-
-    ctx.fillStyle = 'rgba(255,255,255,.92)';
-    ctx.font = '700 14px ui-monospace, Menlo, Consolas, monospace';
-    ctx.fillText(label, x+10, y + h - 10);
-  }
-
-  function drawSprite(sprite, x, y, scale, anchorX=0.5, anchorY=1.0){
-    ctx.imageSmoothingEnabled = false;
-    const w = sprite.width * scale;
-    const h = sprite.height * scale;
-    ctx.drawImage(sprite, x - w*anchorX, y - h*anchorY, w, h);
-    return { x: x - w*anchorX, y: y - h*anchorY, w, h };
-  }
-
-  function drawSpeechBubble(x,y,text){
-    ctx.font = '700 14px ui-monospace, Menlo, Consolas, monospace';
-    const pad = 10;
-    const w = ctx.measureText(text).width + pad*2;
-    const h = 34;
-    const bx = x - w/2;
-    const by = y - 80;
-    ctx.fillStyle = 'rgba(0,0,0,.55)';
-    ctx.strokeStyle = 'rgba(255,255,255,.16)';
-    ctx.lineWidth = 2;
-    drawRoundedRect(bx,by,w,h,12);
-    ctx.fill();
+    ctx.ellipse(px+7, py+18, r, r*0.55, 0, 0, Math.PI*2);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.92)';
-    ctx.fillText(text, bx+pad, by+22);
-
-    ctx.beginPath();
-    ctx.moveTo(x-8, by+h);
-    ctx.lineTo(x, by+h+10);
-    ctx.lineTo(x+8, by+h);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,0,0,.55)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.10)';
-    ctx.stroke();
-  }
-
-  function drawField(field){
-    const {x,y,w,h,topInset} = field;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(x + topInset, y);
-    ctx.lineTo(x + w - topInset, y);
-    ctx.lineTo(x + w, y + h);
-    ctx.lineTo(x, y + h);
-    ctx.closePath();
-
-    const grad = ctx.createLinearGradient(0, y, 0, y+h);
-    grad.addColorStop(0, 'rgba(70,180,90,.55)');
-    grad.addColorStop(1, 'rgba(30,120,60,.35)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255,255,255,.08)';
-    ctx.lineWidth = 2;
-
-    for(let i=1;i<=8;i++){
-      const t = i/9;
-      const yy = y + t*h;
-      const leftX  = x + (1-t)*topInset;
-      const rightX = x + w - (1-t)*topInset;
-      ctx.beginPath();
-      ctx.moveTo(leftX, yy);
-      ctx.lineTo(rightX, yy);
-      ctx.stroke();
-    }
-
-    for(let i=1;i<=10;i++){
-      const t = i/11;
-      const topX = (x + topInset) + t*(w - topInset*2);
-      const botX = x + t*w;
-      ctx.beginPath();
-      ctx.moveTo(topX, y);
-      ctx.lineTo(botX, y+h);
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle = 'rgba(255,255,255,.20)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawBackgroundTrees(field){
-    const {x,y,w,topInset} = field;
-    const t1x = x + topInset + w*0.15;
-    const t2x = x + topInset + w*0.78;
-    const ty  = y - 10;
-    drawSprite(sprites.tree, t1x, ty+58, 2.6, 0.5, 1.0);
-    drawSprite(sprites.tree, t2x, ty+56, 2.9, 0.5, 1.0);
-  }
-
-  function drawHUD(hud){
-    const {x,y,w,h} = hud;
-    ctx.fillStyle = 'rgba(0,0,0,.30)';
-    ctx.strokeStyle = 'rgba(255,255,255,.16)';
-    ctx.lineWidth = 2;
-    drawRoundedRect(x,y,w,h,16);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255,255,255,.92)';
-    ctx.font = '800 16px ui-monospace, Menlo, Consolas, monospace';
-    ctx.fillText(state.salem.name, x+14, y+22);
-
-    const hpPct = state.salem.hp / state.salem.hpMax;
-    const mpPct = state.salem.mp / state.salem.mpMax;
-
-    drawBar(x+14, y+30, w-28, 18, hpPct, `HP: ${state.salem.hp}/${state.salem.hpMax}`, 'rgba(255,110,110,.90)');
-    drawBar(x+14, y+52, w-28, 18, mpPct, `MP: ${state.salem.mp}/${state.salem.mpMax}`, 'rgba(130,170,255,.90)');
-  }
-
-  function drawTargetRing(x,y,scale,isAlive){
-    if(!isAlive) return;
-    ctx.save();
-    ctx.globalAlpha = 0.95;
-    ctx.strokeStyle = 'rgba(170,140,255,.90)';
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.ellipse(x, y+10, 52*scale/3, 18*scale/3, 0, 0, Math.PI*2);
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.35;
-    ctx.strokeStyle = 'rgba(255,255,255,.55)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(x, y+10, 62*scale/3, 24*scale/3, 0, 0, Math.PI*2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // ---------- Combat ----------
-  function aliveEnemies(){
-    return state.enemies.map((e,i)=>({e,i})).filter(o => o.e.alive && o.e.hp > 0);
-  }
-
-  function pickTargetIndex(){
-    // target selected if alive; otherwise first alive
-    const t = state.selectedTarget;
-    const e = state.enemies[t];
-    if(e && e.alive && e.hp > 0) return t;
-    const alive = aliveEnemies();
-    return alive.length ? alive[0].i : -1;
-  }
-
-  function damageEnemy(i, dmg){
-    const e = state.enemies[i];
-    if(!e || !e.alive) return;
-    e.hp = Math.max(0, e.hp - dmg);
-    if(e.hp <= 0){
-      e.alive = false;
-      pushLog(`${e.name} is defeated.`);
-    }
-  }
-
-  function damageSalem(dmg){
-    state.salem.hp = Math.max(0, state.salem.hp - dmg);
-  }
-
-  function checkEnd(){
-    if(state.salem.hp <= 0){
-      pushLog("Salem falls. (Battle Over)");
-      state.running = false;
-      state.waitingForPlayer = false;
-      updateUI();
-      return true;
-    }
-    if(aliveEnemies().length === 0){
-      pushLog("Victory. (All enemies defeated)");
-      state.running = false;
-      state.waitingForPlayer = false;
-      updateUI();
-      return true;
-    }
-    return false;
-  }
-
-  function currentActorLabel(){
-    const t = state.turnIndex % 4;
-    if(t === 0) return "Salem (Action 1)";
-    if(t === 1) return "Salem (Action 2)";
-    if(t === 2) return state.enemies[0]?.alive ? `${state.enemies[0].name}` : "Enemy 1 (Down)";
-    return state.enemies[1]?.alive ? `${state.enemies[1].name}` : "Enemy 2 (Down)";
-  }
-
-  function setTurnWaiting(){
-    state.waitingForPlayer = ((state.turnIndex % 4) === 0) || ((state.turnIndex % 4) === 1);
-    updateUI();
-  }
-
-  function advanceTurn(){
-    state.turnIndex = (state.turnIndex + 1) % 4;
-
-    let guard = 0;
-    while(guard++ < 6){
-      const t = state.turnIndex % 4;
-      if(t === 2){
-        if(state.enemies[0] && state.enemies[0].alive) break;
-        state.turnIndex = (state.turnIndex + 1) % 4;
-        continue;
-      }
-      if(t === 3){
-        if(state.enemies[1] && state.enemies[1].alive) break;
-        state.turnIndex = (state.turnIndex + 1) % 4;
-        continue;
-      }
-      break;
-    }
-    setTurnWaiting();
-
-    if(!checkEnd()){
-      if(!state.waitingForPlayer){
-        queueEnemyAction();
-      } else {
-        pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
-      }
-    }
-  }
-
-  function startOrContinue(){
-    if(checkEnd()) return;
-    state.running = true;
-    setTurnWaiting();
-    if(state.waitingForPlayer){
-      pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
-    } else {
-      queueEnemyAction();
-    }
-  }
-
-  // ---------- Animations ----------
-  function playAnim(anim){
-    state.anim = anim;
-    state.busy = true;
-    updateUI();
-    requestAnimationFrame(render);
-  }
-
-  function endAnim(){
-    state.anim = null;
-    state.busy = false;
-    updateUI();
-    if(!checkEnd()) advanceTurn();
-  }
-
-  // Player actions
-  function doSlash(){
-    if(!state.waitingForPlayer || state.busy || !state.running) return;
-    const target = pickTargetIndex();
-    if(target < 0) return;
-
-    const { atk } = derivedStats();
-    const dmg = clamp(randInt(6, 10) + Math.floor(atk/8), 6, 18);
-
-    pushLog(`Salem uses SLASH on Enemy ${target+1} for ${dmg}.`);
-    playAnim({ type: 'slash', t: 0, dur: 380, target, dmg });
-  }
-
-  function doFire(){
-    if(!state.waitingForPlayer || state.busy || !state.running) return;
-    const target = pickTargetIndex();
-    if(target < 0) return;
-
-    const cost = 2;
-    if(state.salem.mp < cost){
-      pushLog("Not enough mana.");
-      return;
-    }
-    state.salem.mp -= cost;
-
-    const { spAtk } = derivedStats();
-    const dmg = clamp(randInt(7, 11) + Math.floor(spAtk/8), 7, 19);
-
-    pushLog(`Salem casts FIRE on Enemy ${target+1} for ${dmg}. (-${cost} mana)`);
-    playAnim({ type: 'projectile', flavor: 'fire', t: 0, dur: 520, target, dmg });
-  }
-
-  function doWater(){
-    if(!state.waitingForPlayer || state.busy || !state.running) return;
-    const target = pickTargetIndex();
-    if(target < 0) return;
-
-    const cost = 2;
-    if(state.salem.mp < cost){
-      pushLog("Not enough mana.");
-      return;
-    }
-    state.salem.mp -= cost;
-
-    const { spAtk } = derivedStats();
-    const dmg = clamp(randInt(6, 10) + Math.floor(spAtk/10), 6, 17);
-
-    pushLog(`Salem casts WATER on Enemy ${target+1} for ${dmg}. (-${cost} mana)`);
-    playAnim({ type: 'projectile', flavor: 'water', t: 0, dur: 520, target, dmg });
-  }
-
-  function doHeal(){
-    if(!state.waitingForPlayer || state.busy || !state.running) return;
-    const cost = 3;
-    if(state.salem.mp < cost){
-      pushLog("Not enough mana.");
-      return;
-    }
-    state.salem.mp -= cost;
-
-    const healAmt = 10;
-    const before = state.salem.hp;
-    state.salem.hp = Math.min(state.salem.hpMax, state.salem.hp + healAmt);
-    const actual = state.salem.hp - before;
-
-    pushLog(`Salem uses HEAL (+${actual} HP). (-${cost} mana)`);
-    playAnim({ type: 'heal', t: 0, dur: 520 });
-  }
-
-  // Enemy action queue
-  function queueEnemyAction(){
-    if(state.busy || !state.running) return;
-    const t = state.turnIndex % 4;
-
-    const slot = (t === 2) ? 0 : 1;
-    const enemy = state.enemies[slot];
-    if(!enemy || !enemy.alive) { advanceTurn(); return; }
-
-    setTimeout(() => {
-      if(!state.running || state.busy) return;
-      enemyAct(slot);
-    }, 420);
-  }
-
-  function enemyAct(slot){
-    const e = state.enemies[slot];
-    if(!e || !e.alive) { advanceTurn(); return; }
-
-    if(e.ai === 'engorge'){
-      e.cast = (e.cast || 0) + 1;
-
-      if(e.cast % 3 === 0){
-        const cur = state.salem.hp;
-        const raw = Math.floor(cur * 0.20);
-        const dmg = Math.max(1, raw);
-        let finalHP = cur - dmg;
-        if(finalHP <= 0) finalHP = 1; // cannot kill
-        const applied = cur - finalHP;
-
-        pushLog(`ENGORGE uses MINDFLAY. (-${applied} HP)`);
-        playAnim({ type: 'mindflay', t: 0, dur: 720, dmg: applied });
-        return;
-      }
-
-      if(Math.random() < 0.40){
-        pushLog(`ENGORGE uses "yourdabich". (No effect)`);
-        playAnim({ type: 'speech', t: 0, dur: 920, speech: 'yourdabich' });
-        return;
-      }
-
-      const dmg = randInt(4, 8);
-      pushLog(`ENGORGE slams for ${dmg}.`);
-      playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg });
-      return;
-    }
-
-    // Normal auto-attack 2–6, reduced slightly by armor (but never below 1)
-    const { armor } = derivedStats();
-    const raw = randInt(2, 6);
-    const mitigated = Math.max(1, raw - Math.floor(armor/10));
-
-    pushLog(`${e.name} attacks for ${mitigated}.`);
-    playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg: mitigated });
-  }
-
-  // ---------- UI ----------
-  function updateUI(){
-    turnChip.textContent = `Turn: ${currentActorLabel()}`;
-    phaseChip.textContent = state.running ? (state.waitingForPlayer ? "Phase: Player Input" : "Phase: Enemy Action") : "Phase: Paused";
-
-    renderStatSheet();
-
-    const enablePlayer = state.running && state.waitingForPlayer && !state.busy && state.salem.hp > 0 && aliveEnemies().length > 0;
-    slashBtn.disabled = !enablePlayer;
-    fireBtn.disabled  = !enablePlayer;
-    waterBtn.disabled = !enablePlayer;
-    healBtn.disabled  = !enablePlayer;
-
-    if(enablePlayer && state.salem.mp < 3) healBtn.disabled = true;
-
-    // target buttons reflect state
-    const t = state.selectedTarget;
-    t1Btn.style.outline = (t === 0) ? "2px solid rgba(170,140,255,.7)" : "none";
-    t2Btn.style.outline = (t === 1) ? "2px solid rgba(170,140,255,.7)" : "none";
-  }
-
-  // ---------- Rendering ----------
-  function spriteForEnemy(e){
-    if(e.kind === 'slime') return sprites.slime;
-    if(e.kind === 'bandit') return sprites.bandit;
-    return sprites.engorge;
   }
 
   function render(){
-    state.frame++;
-    ctx.clearRect(0,0,canvas.width, canvas.height);
+    // background
+    ctx.clearRect(0,0,W,H);
 
-    const L = layout();
+    // sky gradient
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#1a1a2a");
+    g.addColorStop(1,"#0e0e16");
+    ctx.fillStyle=g;
+    ctx.fillRect(0,0,W,H);
 
-    // subtle title
-    ctx.fillStyle = 'rgba(255,255,255,.08)';
-    ctx.font = '900 44px ui-sans-serif, system-ui';
-    ctx.fillText('IRONCLAD', 18, 56);
+    // "field" plane (angled)
+    // draw a trapezoid to imply perspective
+    ctx.fillStyle="rgba(78,229,154,.10)";
+    ctx.beginPath();
+    ctx.moveTo(30,55);
+    ctx.lineTo(290,55);
+    ctx.lineTo(305,140);
+    ctx.lineTo(15,140);
+    ctx.closePath();
+    ctx.fill();
 
-    drawField(L.field);
-    drawBackgroundTrees(L.field);
-
-    const salem = L.salemPos;
-    const e1 = L.e1Pos;
-    const e2 = L.e2Pos;
-
-    // animation offsets
-    let salemOffsetX = 0, salemOffsetY = 0;
-    let proj = null;
-    let slashArc = null;
-    let healSpark = 0;
-    let mindflayPulse = 0;
-
-    if(state.anim){
-      const a = state.anim;
-      const t = clamp(a.t / a.dur, 0, 1);
-
-      if(a.type === 'slash'){
-        const dash = t < 0.5 ? (t/0.5) : (1 - (t-0.5)/0.5);
-        salemOffsetX = dash * 42;
-        salemOffsetY = -dash * 12;
-        const targetPos = (a.target === 0) ? e1 : e2;
-        slashArc = { x: targetPos.x - 20, y: targetPos.y - 80, a: dash };
-      }
-      if(a.type === 'projectile'){
-        const targetPos = (a.target === 0) ? e1 : e2;
-        const sx = salem.x + 40, sy = salem.y - 90;
-        const ex = targetPos.x - 40, ey = targetPos.y - 110;
-        const px = sx + (ex - sx) * t;
-        const py = sy + (ey - sy) * t;
-        proj = { x:px, y:py, flavor:a.flavor };
-      }
-      if(a.type === 'heal'){
-        healSpark = 1 - Math.abs(0.5 - t) * 2;
-      }
-      if(a.type === 'mindflay'){
-        mindflayPulse = 1 - Math.abs(0.5 - t) * 2;
-      }
-    }
-
-    // target rings behind enemies
-    const targetIndex = pickTargetIndex();
-    if(targetIndex === 0) drawTargetRing(e1.x, e1.y, e1.scale, !!state.enemies[0]?.alive);
-    if(targetIndex === 1) drawTargetRing(e2.x, e2.y, e2.scale, !!state.enemies[1]?.alive);
-
-    // draw Salem
-    drawSprite(sprites.knight, salem.x + salemOffsetX, salem.y + salemOffsetY, salem.scale);
-
-    // draw enemies + set hitboxes
-    state.hitboxes.e1 = null;
-    state.hitboxes.e2 = null;
-
-    if(state.enemies[0]){
-      const s = spriteForEnemy(state.enemies[0]);
-      const rect = drawSprite(s, e1.x, e1.y, e1.scale, 0.5, 1.0);
-      state.hitboxes.e1 = rect;
-      // faded enemy name
-      if(state.enemies[0].alive){
-        ctx.fillStyle = 'rgba(255,255,255,.55)';
-        ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
-        ctx.fillText("Enemy 1", rect.x + 4, rect.y - 6);
-      }
-    }
-    if(state.enemies[1]){
-      const s = spriteForEnemy(state.enemies[1]);
-      const rect = drawSprite(s, e2.x, e2.y, e2.scale, 0.5, 1.0);
-      state.hitboxes.e2 = rect;
-      if(state.enemies[1].alive){
-        ctx.fillStyle = 'rgba(255,255,255,.55)';
-        ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
-        ctx.fillText("Enemy 2", rect.x + 4, rect.y - 6);
-      }
-    }
-
-    // slash arc
-    if(slashArc){
-      ctx.save();
-      ctx.globalAlpha = 0.85 * slashArc.a;
-      ctx.strokeStyle = 'rgba(255,255,255,.85)';
-      ctx.lineWidth = 6;
+    // grid lines
+    ctx.strokeStyle="rgba(255,255,255,.08)";
+    ctx.lineWidth=1;
+    for(let i=0;i<=10;i++){
+      const y = 55 + i*8.5;
       ctx.beginPath();
-      ctx.arc(slashArc.x, slashArc.y, 26, Math.PI*0.1, Math.PI*1.25);
+      ctx.moveTo(30, y);
+      ctx.lineTo(290, y);
       ctx.stroke();
-      ctx.restore();
     }
-
-    // projectile
-    if(proj){
-      ctx.save();
-      ctx.globalAlpha = 0.95;
-      if(proj.flavor === 'fire'){
-        ctx.fillStyle = 'rgba(255,140,70,.95)';
-        ctx.strokeStyle = 'rgba(255,220,170,.70)';
-      }else{
-        ctx.fillStyle = 'rgba(90,170,255,.95)';
-        ctx.strokeStyle = 'rgba(200,240,255,.70)';
-      }
-      ctx.lineWidth = 3;
+    for(let i=0;i<=14;i++){
+      const x = 30 + i*18.6;
       ctx.beginPath();
-      ctx.arc(proj.x, proj.y, 10, 0, Math.PI*2);
-      ctx.fill();
+      ctx.moveTo(x,55);
+      ctx.lineTo(x+ (i*0.6), 140);
       ctx.stroke();
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.arc(proj.x - 16, proj.y + 6, 7, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
     }
 
-    // Heal sparkles near Salem
-    if(healSpark > 0){
-      ctx.save();
-      ctx.globalAlpha = 0.8 * healSpark;
-      ctx.fillStyle = 'rgba(120,220,120,.95)';
-      for(let i=0;i<8;i++){
-        const ang = (i/8)*Math.PI*2;
-        const r = 18 + 18*healSpark;
-        const x = salem.x + Math.cos(ang)*r;
-        const y = salem.y - 78 + Math.sin(ang)*r;
-        ctx.fillRect(x, y, 3, 3);
-      }
-      ctx.restore();
-    }
+    // trees (background)
+    drawTree(45,45);
+    drawTree(265,42);
 
-    // Mindflay pulse overlay
-    if(mindflayPulse > 0){
-      ctx.save();
-      ctx.globalAlpha = 0.18 * mindflayPulse;
-      ctx.fillStyle = 'rgba(170,140,255,.95)';
-      ctx.fillRect(0,0,canvas.width, canvas.height);
-      ctx.restore();
-    }
+    // Units
+    // player
+    drawKnight(scene.player.x, scene.player.y);
 
-    // enemy hit flash on Salem
-    if(state.anim && state.anim.type === 'enemyHit'){
-      const a = state.anim;
-      const t = clamp(a.t / a.dur, 0, 1);
-      const alpha = 0.65 * (1 - t);
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = 'rgba(255,90,90,.9)';
-      ctx.fillRect(salem.x - 50, salem.y - 150, 100, 120);
-      ctx.restore();
-    }
-
-    // speech bubble (yourdabich)
-    if(state.anim && state.anim.type === 'speech'){
-      const bubbleOn = (state.enemies[0]?.kind === 'engorge' && state.enemies[0]?.alive) ? e1 :
-                       (state.enemies[1]?.kind === 'engorge' && state.enemies[1]?.alive) ? e2 : e1;
-      drawSpeechBubble(bubbleOn.x, bubbleOn.y - 120, 'yourdabich');
-    }
-
-    // HUD near Salem
-    drawHUD(L.hud);
-
-    // Debug hitboxes
-    if(state.debug){
-      ctx.fillStyle = 'rgba(255,255,255,.75)';
-      ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
-      ctx.fillText(`turnIndex=${state.turnIndex} waitingForPlayer=${state.waitingForPlayer} busy=${state.busy} selectedTarget=${state.selectedTarget}`, 18, canvas.height - 18);
-
-      const hb1 = state.hitboxes.e1, hb2 = state.hitboxes.e2;
-      ctx.strokeStyle = 'rgba(255,255,255,.25)';
-      ctx.lineWidth = 2;
-      if(hb1) ctx.strokeRect(hb1.x, hb1.y, hb1.w, hb1.h);
-      if(hb2) ctx.strokeRect(hb2.x, hb2.y, hb2.w, hb2.h);
-    }
-
-    // Advance animation
-    if(state.anim){
-      state.anim.t += 16;
-      if(state.anim.t >= state.anim.dur){
-        const a = state.anim;
-        if(a.type === 'slash') damageEnemy(a.target, a.dmg);
-        if(a.type === 'projectile') damageEnemy(a.target, a.dmg);
-        if(a.type === 'enemyHit') damageSalem(a.dmg);
-        if(a.type === 'mindflay') damageSalem(a.dmg);
-        endAnim();
-        render();
-        return;
-      }
-      requestAnimationFrame(render);
-      return;
-    }
-  }
-
-  // ---------- Targeting ----------
-  function setTarget(idx){
-    if(idx !== 0 && idx !== 1) return;
-    state.selectedTarget = idx;
-    const e = state.enemies[idx];
-    if(e && e.alive) pushLog(`Target set: Enemy ${idx+1}.`);
-    updateUI();
-    render();
-  }
-
-  function pointInRect(px,py,r){
-    return !!r && px >= r.x && px <= r.x+r.w && py >= r.y && py <= r.y+r.h;
-  }
-
-  function canvasToLocal(evt){
-    const rect = canvas.getBoundingClientRect();
-    const x = (evt.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (evt.clientY - rect.top) * (canvas.height / rect.height);
-    return {x,y};
-  }
-
-  canvas.addEventListener('click', (evt) => {
-    const p = canvasToLocal(evt);
-    if(pointInRect(p.x,p.y,state.hitboxes.e1)) return setTarget(0);
-    if(pointInRect(p.x,p.y,state.hitboxes.e2)) return setTarget(1);
-  });
-
-  // ---------- UI ----------
-  function updateUI(){
-    turnChip.textContent = `Turn: ${currentActorLabel()}`;
-    phaseChip.textContent = state.running ? (state.waitingForPlayer ? "Phase: Player Input" : "Phase: Enemy Action") : "Phase: Paused";
-
-    renderStatSheet();
-
-    const enablePlayer = state.running && state.waitingForPlayer && !state.busy && state.salem.hp > 0 && aliveEnemies().length > 0;
-    slashBtn.disabled = !enablePlayer;
-    fireBtn.disabled  = !enablePlayer;
-    waterBtn.disabled = !enablePlayer;
-    healBtn.disabled  = !enablePlayer;
-
-    if(enablePlayer && state.salem.mp < 3) healBtn.disabled = true;
-
-    const t = state.selectedTarget;
-    t1Btn.style.outline = (t === 0) ? "2px solid rgba(170,140,255,.7)" : "none";
-    t2Btn.style.outline = (t === 1) ? "2px solid rgba(170,140,255,.7)" : "none";
-  }
-
-  // ---------- Turn logic ----------
-  function setTurnWaiting(){
-    state.waitingForPlayer = ((state.turnIndex % 4) === 0) || ((state.turnIndex % 4) === 1);
-    updateUI();
-  }
-
-  function advanceTurn(){
-    state.turnIndex = (state.turnIndex + 1) % 4;
-
-    let guard = 0;
-    while(guard++ < 6){
-      const t = state.turnIndex % 4;
-      if(t === 2){
-        if(state.enemies[0] && state.enemies[0].alive) break;
-        state.turnIndex = (state.turnIndex + 1) % 4;
-        continue;
-      }
-      if(t === 3){
-        if(state.enemies[1] && state.enemies[1].alive) break;
-        state.turnIndex = (state.turnIndex + 1) % 4;
-        continue;
-      }
-      break;
-    }
-    setTurnWaiting();
-
-    if(!checkEnd()){
-      if(!state.waitingForPlayer){
-        queueEnemyAction();
-      } else {
-        pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
-      }
-    }
-  }
-
-  function startOrContinue(){
-    if(checkEnd()) return;
-    state.running = true;
-    setTurnWaiting();
-    if(state.waitingForPlayer){
-      pushLog(`Your turn: ${currentActorLabel()}. Targeting: Enemy ${pickTargetIndex()+1}.`);
+    // enemies
+    const e1 = enemies[0], e2 = enemies[1];
+    if(e1.type==="slime" || e1.type==="wisp" || e1.type==="engorge"){
+      drawSlime(scene.enemy1.x, scene.enemy1.y, e1.type==="wisp" ? "#8a7dff" : (e1.type==="engorge" ? "#b56bff" : "#7c5bff"));
     } else {
-      queueEnemyAction();
+      drawBandit(scene.enemy1.x, scene.enemy1.y);
+    }
+    if(e2.type==="slime" || e2.type==="wisp" || e2.type==="engorge"){
+      drawSlime(scene.enemy2.x, scene.enemy2.y, e2.type==="wisp" ? "#8a7dff" : (e2.type==="engorge" ? "#b56bff" : "#7c5bff"));
+    } else {
+      drawBandit(scene.enemy2.x, scene.enemy2.y);
+    }
+
+    // selection ring around targeted living enemy
+    if(targetIndex===0) drawSelectionRing(scene.enemy1.x, scene.enemy1.y, e1.alive);
+    if(targetIndex===1) drawSelectionRing(scene.enemy2.x, scene.enemy2.y, e2.alive);
+
+    // pulse tick
+    scene.ringPulse += 0.14;
+
+    // HUD
+    pName.textContent = player.name;
+    pLvl.textContent = player.lvl;
+    pXp.textContent = player.xp;
+    pHpNow.textContent = player.hp;
+    pHpMax.textContent = player.hpMax;
+    pMpNow.textContent = player.mp;
+    pMpMax.textContent = player.mpMax;
+    pHpBar.style.width = (player.hp / player.hpMax * 100).toFixed(1) + "%";
+    pMpBar.style.width = (player.mp / player.mpMax * 100).toFixed(1) + "%";
+
+    // Target button labels
+    t1Btn.textContent = "Target: Enemy 1";
+    t2Btn.textContent = "Target: Enemy 2";
+
+    // Phase badge
+    phaseBadge.textContent = running ? (waitingForPlayer ? "Your turn" : "Enemy turn") : "Paused";
+    roundBadge.textContent = "Round " + round;
+
+    // Action availability
+    const myTurn = running && (turnOrder[turnIndex] === "P1" || turnOrder[turnIndex] === "P2");
+    slashBtn.disabled = !myTurn;
+    fireBtn.disabled  = !myTurn;
+    waterBtn.disabled = !myTurn;
+    healBtn.disabled  = !myTurn;
+
+    if(!running){
+      hintEl.innerHTML = 'Tap <b>Start / Continue</b> to begin. Then choose a target and an action.';
+    } else if(myTurn){
+      hintEl.innerHTML = 'Your turn: choose <b>Slash / Fire / Water / Heal</b>. (Tap an enemy to target.)';
+    } else {
+      hintEl.innerHTML = 'Enemy is acting. Tap <b>Start / Continue</b> to advance.';
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  // -------------------------
+  // Turn system
+  // -------------------------
+  function livingEnemyCount(){
+    return enemies.filter(e=>e.alive).length;
+  }
+  function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+
+  function currentToken(){
+    return turnOrder[turnIndex];
+  }
+
+  function nextTurn(){
+    // advance to next valid turn; if round ends, increment
+    turnIndex++;
+    if(turnIndex >= turnOrder.length){
+      turnIndex = 0;
+      round++;
+      log(`--- Round ${round} ---`);
     }
   }
 
-  // ---------- Player buttons ----------
-  slashBtn.addEventListener('click', () => doSlash());
-  fireBtn.addEventListener('click',  () => doFire());
-  waterBtn.addEventListener('click', () => doWater());
-  healBtn.addEventListener('click',  () => doHeal());
-
-  t1Btn.addEventListener('click', () => setTarget(0));
-  t2Btn.addEventListener('click', () => setTarget(1));
-
-  applyEnemiesBtn.addEventListener('click', () => applyEnemies());
-  startBtn.addEventListener('click', () => startOrContinue());
-
-  resetBtn.addEventListener('click', () => resetBattle());
-  toggleDebugBtn.addEventListener('click', () => {
-    state.debug = !state.debug;
-    toggleDebugBtn.textContent = `Debug: ${state.debug ? 'ON' : 'OFF'}`;
-    render();
-  });
-
-  function resetBattle(){
-    state.salem.hp = 32;
-    state.salem.hpMax = 32;
-    state.salem.mp = 25;
-    state.salem.mpMax = 25;
-
-    state.enemies = [ makeEnemy(enemy1Sel.value), makeEnemy(enemy2Sel.value) ];
-    state.selectedTarget = 0;
-    state.turnIndex = 0;
-    state.running = false;
-    state.waitingForPlayer = true;
-    state.busy = false;
-    state.anim = null;
-
-    logEl.textContent = "";
-    pushLog("Battle reset. Tap Start / Continue.");
-    updateUI();
-    render();
+  function ensureValidTarget(){
+    if(enemies[targetIndex] && enemies[targetIndex].alive) return;
+    // pick first alive
+    const idx = enemies.findIndex(e=>e.alive);
+    targetIndex = idx === -1 ? 0 : idx;
   }
 
-  // ---------- Enemy AI ----------
-  function aliveEnemies(){
-    return state.enemies.map((e,i)=>({e,i})).filter(o => o.e.alive && o.e.hp > 0);
+  function isBattleOver(){
+    if(player.hp<=0) return true;
+    if(livingEnemyCount()===0) return true;
+    return false;
   }
 
-  function pickTargetIndex(){
-    const t = state.selectedTarget;
-    const e = state.enemies[t];
-    if(e && e.alive && e.hp > 0) return t;
-    const alive = aliveEnemies();
-    return alive.length ? alive[0].i : -1;
-  }
-
-  function checkEnd(){
-    if(state.salem.hp <= 0){
-      pushLog("Salem falls. (Battle Over)");
-      state.running = false;
-      state.waitingForPlayer = false;
-      updateUI();
+  function endIfOver(){
+    if(player.hp<=0){
+      log("Salem has fallen. (Battle Over)");
+      running = false;
       return true;
     }
-    if(aliveEnemies().length === 0){
-      pushLog("Victory. (All enemies defeated)");
-      state.running = false;
-      state.waitingForPlayer = false;
-      updateUI();
+    if(livingEnemyCount()===0){
+      log("Enemies defeated. (Battle Over)");
+      running = false;
       return true;
     }
     return false;
   }
 
-  function queueEnemyAction(){
-    if(state.busy || !state.running) return;
-    const t = state.turnIndex % 4;
-    const slot = (t === 2) ? 0 : 1;
-    const enemy = state.enemies[slot];
-    if(!enemy || !enemy.alive) { advanceTurn(); return; }
+  // Enemy AI: auto attack 2-6 damage
+  function enemyAutoAttack(enemy){
+    if(!enemy.alive) return;
+    // Special: Engorge has mindflay every 3rd cast + useless accusation move
+    if(enemy.type==="engorge"){
+      enemy.mindflayCounter = (enemy.mindflayCounter||0)+1;
+      if(enemy.mindflayCounter % 3 === 0){
+        const loss = Math.floor(player.hp * 0.20);
+        const dmg = Math.max(1, loss);
+        player.hp = clamp(player.hp - dmg, 1, player.hpMax); // cannot kill
+        log(`${enemy.label} casts MINDFLAY. You lose ${dmg} HP (20% of current). It can’t kill.`);
+        return;
+      } else {
+        // accusation move
+        log(`${enemy.label} uses "yourdabich". (It does nothing.)`);
+        return;
+      }
+    }
 
-    setTimeout(() => {
-      if(!state.running || state.busy) return;
-      enemyAct(slot);
-    }, 420);
+    const dmg = RNG(2,6);
+    player.hp = clamp(player.hp - dmg, 0, player.hpMax);
+    log(`${enemy.label} attacks for ${dmg} damage.`);
   }
 
-  function enemyAct(slot){
-    const e = state.enemies[slot];
-    if(!e || !e.alive) { advanceTurn(); return; }
+  // Player actions
+  function playerAttack(kind){
+    if(!running) return;
+    const tok = currentToken();
+    if(!(tok==="P1"||tok==="P2")) return;
 
-    if(e.ai === 'engorge'){
-      e.cast = (e.cast || 0) + 1;
-
-      if(e.cast % 3 === 0){
-        const cur = state.salem.hp;
-        const raw = Math.floor(cur * 0.20);
-        const dmg = Math.max(1, raw);
-        let finalHP = cur - dmg;
-        if(finalHP <= 0) finalHP = 1;
-        const applied = cur - finalHP;
-
-        pushLog(`ENGORGE uses MINDFLAY. (-${applied} HP)`);
-        playAnim({ type: 'mindflay', t: 0, dur: 720, dmg: applied });
-        return;
-      }
-
-      if(Math.random() < 0.40){
-        pushLog(`ENGORGE uses "yourdabich". (No effect)`);
-        playAnim({ type: 'speech', t: 0, dur: 920, speech: 'yourdabich' });
-        return;
-      }
-
-      const dmg = randInt(4, 8);
-      pushLog(`ENGORGE slams for ${dmg}.`);
-      playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg });
+    ensureValidTarget();
+    const enemy = enemies[targetIndex];
+    if(!enemy || !enemy.alive){
+      log("No valid target.");
       return;
     }
 
-    const { armor } = derivedStats();
-    const raw = randInt(2, 6);
-    const mitigated = Math.max(1, raw - Math.floor(armor/10));
+    if(kind==="heal"){
+      const cost = 3;
+      if(player.mp < cost){
+        log("Not enough MP to Heal.");
+        return;
+      }
+      player.mp -= cost;
+      const heal = RNG(4,7); // small heal feel-good
+      player.hp = clamp(player.hp + heal, 0, player.hpMax);
+      log(`Salem casts HEAL (+${heal} HP, -${cost} MP).`);
+    } else {
+      // Damage tuning: quick feel — Slash 5-9, Fire 6-10, Water 5-9
+      let dmg = 0;
+      if(kind==="slash") dmg = RNG(5,9);
+      if(kind==="fire")  dmg = RNG(6,10);
+      if(kind==="water") dmg = RNG(5,9);
 
-    pushLog(`${e.name} attacks for ${mitigated}.`);
-    playAnim({ type: 'enemyHit', t: 0, dur: 520, dmg: mitigated });
+      enemy.hp = clamp(enemy.hp - dmg, 0, enemy.hpMax);
+      log(`Salem uses ${kind.toUpperCase()} on ${enemy.label} for ${dmg} damage.`);
+
+      if(enemy.hp<=0){
+        enemy.alive = false;
+        log(`${enemy.label} is defeated.`);
+      }
+    }
+
+    if(endIfOver()) return;
+
+    // advance turn after player action
+    nextTurn();
+    waitingForPlayer = (currentToken()==="P1"||currentToken()==="P2");
+    syncDebug();
   }
 
-  // ---------- Damage application ----------
-  function damageEnemy(i, dmg){
-    const e = state.enemies[i];
-    if(!e || !e.alive) return;
-    e.hp = Math.max(0, e.hp - dmg);
-    if(e.hp <= 0){
-      e.alive = false;
-      pushLog(`${e.name} is defeated.`);
+  // Advance (Start / Continue)
+  function continueFlow(){
+    if(!running){
+      running = true;
+      waitingForPlayer = (currentToken()==="P1"||currentToken()==="P2");
+      log(`Two enemies ready. (Stats hidden)`);
+      log(`Your turn: Salem (Action 1).`);
+      syncDebug();
+      return;
+    }
+
+    if(endIfOver()) return;
+
+    const tok = currentToken();
+
+    if(tok==="E1" || tok==="E2"){
+      waitingForPlayer = false;
+
+      const idx = tok==="E1" ? 0 : 1;
+      const enemy = enemies[idx];
+
+      if(enemy && enemy.alive){
+        enemyAutoAttack(enemy);
+      } else {
+        if(debug) log(`${tok} skipped (dead).`);
+      }
+
+      if(endIfOver()) return;
+
+      nextTurn();
+      waitingForPlayer = (currentToken()==="P1"||currentToken()==="P2");
+      if(waitingForPlayer){
+        const actNum = currentToken()==="P1" ? 1 : 2;
+        log(`Your turn: Salem (Action ${actNum}).`);
+      } else {
+        if(debug) log(`Enemy queued: ${currentToken()}`);
+      }
+      syncDebug();
+      return;
+    }
+
+    // If it's player turn, Start/Continue just reminds you to pick an action
+    if(tok==="P1"||tok==="P2"){
+      const actNum = tok==="P1" ? 1 : 2;
+      log(`Your turn: Salem (Action ${actNum}). Choose an action.`);
+      waitingForPlayer = true;
+      syncDebug();
     }
   }
-  function damageSalem(dmg){
-    state.salem.hp = Math.max(0, state.salem.hp - dmg);
+
+  // -------------------------
+  // Target selection (tap canvas or buttons)
+  // -------------------------
+  function setTarget(i){
+    targetIndex = i;
+    ensureValidTarget();
+    log(`Targeting: ${enemies[targetIndex]?.label || ("Enemy "+(targetIndex+1))}.`);
   }
 
-  function currentActorLabel(){
-    const t = state.turnIndex % 4;
-    if(t === 0) return "Salem (Action 1)";
-    if(t === 1) return "Salem (Action 2)";
-    if(t === 2) return state.enemies[0]?.alive ? `${state.enemies[0].name}` : "Enemy 1 (Down)";
-    return state.enemies[1]?.alive ? `${state.enemies[1].name}` : "Enemy 2 (Down)";
+  t1Btn.addEventListener("click", ()=>setTarget(0));
+  t2Btn.addEventListener("click", ()=>setTarget(1));
+
+  // tap on canvas -> target
+  canvas.addEventListener("click", (ev)=>{
+    const rect = canvas.getBoundingClientRect();
+    const sx = (ev.clientX - rect.left) / rect.width * W;
+    const sy = (ev.clientY - rect.top) / rect.height * H;
+
+    // crude hitboxes
+    const hit = (pos)=> (sx >= pos.x && sx <= pos.x+14 && sy >= pos.y+6 && sy <= pos.y+22);
+    if(hit(scene.enemy1)) setTarget(0);
+    else if(hit(scene.enemy2)) setTarget(1);
+  }, {passive:true});
+
+  // -------------------------
+  // Buttons
+  // -------------------------
+  startBtn.addEventListener("click", continueFlow);
+  resetBtn.addEventListener("click", resetBattle);
+  debugBtn.addEventListener("click", ()=>{
+    debug = !debug;
+    debugBtn.textContent = "Debug: " + (debug ? "ON" : "OFF");
+    syncDebug();
+  });
+
+  slashBtn.addEventListener("click", ()=>playerAttack("slash"));
+  fireBtn.addEventListener("click",  ()=>playerAttack("fire"));
+  waterBtn.addEventListener("click", ()=>playerAttack("water"));
+  healBtn.addEventListener("click",  ()=>playerAttack("heal"));
+
+  function syncDebug(){
+    if(!debug) return;
+    console.log({
+      running, waitingForPlayer, turnIndex, token: currentToken(),
+      p: {...player},
+      enemies: enemies.map(e=>({label:e.label,type:e.type,hp:e.hp,alive:e.alive}))
+    });
   }
 
-  // ---------- Init ----------
-  applyEnemies();
-  logEl.textContent = "";
-  pushLog("Ready. Tap Start / Continue to begin. Tap an enemy to set target.");
-  updateUI();
+  // -------------------------
+  // Reset + Enemy setup
+  // -------------------------
+  function resetBattle(){
+    player.hp = player.hpMax = 32;
+    player.mp = player.mpMax = 25;
+    player.lvl = 7;
+    player.xp = 25;
+    enemies = [ makeEnemy("slime","Enemy 1"), makeEnemy("bandit","Enemy 2") ];
+    targetIndex = 0;
+    turnIndex = 0;
+    round = 1;
+    running = false;
+    waitingForPlayer = true;
+    logLines = [];
+    log("Tap Start / Continue to begin.");
+    syncDebug();
+  }
+
+  // init
+  resetBattle();
   render();
+
 })();
 </script>
 </body>
