@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!--
+  =========================
+  IRON CLAD — Combat Simulator
+  Version: 0.1 (Battle-only Prototype)
+  CHANGELOG:
+  - v0.1: Single-file turn-based battle sim (Gen-1-ish feel), speed-based turn order, scrollable move list,
+         tap-to-target, simple animations (lunge, projectile, AoE), basic statuses (Burn/Soaked/Shock/Corruption),
+         localStorage settings (mute + debug), simple enemy AI.
+  SAVE COMPATIBILITY:
+  - Uses versioned localStorage key "ironclad_demo_v01". Future versions should migrate.
+  =========================
+  -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Iron Clad — Combat Demo v0.1</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin:0; height:100%; background:#0b0d10; overflow:hidden; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+(() => {
+  // ---------- Utilities ----------
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const rnd = (a=0,b=1) => a + Math.random()*(b-a);
+  const irnd = (a,b) => Math.floor(rnd(a,b+1));
+  const now = () => performance.now();
+
+  // ---------- Canvas / Scaling ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha:false });
+
+  // Internal resolution (landscape). We scale to fit device.
+  const W0 = 960, H0 = 540;
+  let scale = 1, offX = 0, offY = 0;
+
+  function resize() {
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    ctx.setTransform(1,0,0,1,0,0);
+
+    const sx = canvas.width / W0;
+    const sy = canvas.height / H0;
+    scale = Math.min(sx, sy);
+    offX = (canvas.width - W0*scale)/2;
+    offY = (canvas.height - H0*scale)/2;
+  }
+  window.addEventListener('resize', resize, { passive:true });
+  resize();
+
+  // ---------- Input ----------
+  const input = {
+    down:false, x:0, y:0, px:0, py:0,
+    tapped:false, tapX:0, tapY:0,
+    wheelDelta:0,
+  };
+
+  function toLocal(px, py) {
+    // Converts device pixels to internal game coords
+    const x = (px - offX) / scale;
+    const y = (py - offY) / scale;
+    return { x, y };
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    const p = toLocal(e.clientX*(window.devicePixelRatio||1), e.clientY*(window.devicePixelRatio||1));
+    input.down = true;
+    input.x = input.px = p.x;
+    input.y = input.py = p.y;
+  }, { passive:false });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!input.down) return;
+    const p = toLocal(e.clientX*(window.devicePixelRatio||1), e.clientY*(window.devicePixelRatio||1));
+    input.x = p.x; input.y = p.y;
+  }, { passive:false });
+
+  canvas.addEventListener('pointerup', (e) => {
+    const p = toLocal(e.clientX*(window.devicePixelRatio||1), e.clientY*(window.devicePixelRatio||1));
+    // Consider a tap if movement small
+    const dx = p.x - input.px, dy = p.y - input.py;
+    const dist = Math.hypot(dx,dy);
+    if (dist < 10) {
+      input.tapped = true;
+      input.tapX = p.x; input.tapY = p.y;
+    }
+    input.down = false;
+  }, { passive:false });
+
+  // ---------- Audio (WebAudio) ----------
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audio = {
+    ctx: null,
+    muted: false,
+    unlocked: false,
+  };
+
+  function loadSettings() {
+    const raw = localStorage.getItem("ironclad_demo_v01");
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw);
+      if (typeof s.muted === 'boolean') audio.muted = s.muted;
+      if (typeof s.debug === 'boolean') state.debug = s.debug;
+    } catch {}
+  }
+  function saveSettings() {
+    const s = { muted: audio.muted, debug: state.debug, ver:"0.1" };
+    localStorage.setItem("ironclad_demo_v01", JSON.stringify(s));
+  }
+
+  function ensureAudio() {
+    if (audio.unlocked) return;
+    audio.ctx = audio.ctx || new AudioCtx();
+    // iOS/Android need user gesture to start. We'll call on first tap.
+    const osc = audio.ctx.createOscillator();
+    const g = audio.ctx.createGain();
+    g.gain.value = 0.0001;
+    osc.connect(g).connect(audio.ctx.destination);
+    osc.start();
+    osc.stop(audio.ctx.currentTime + 0.01);
+    audio.unlocked = true;
+  }
+
+  function beep(freq=440, dur=0.07, type='square', vol=0.04) {
+    if (audio.muted) return;
+    if (!audio.ctx) return;
+    const t = audio.ctx.currentTime;
+    const o = audio.ctx.createOscillator();
+    const g = audio.ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t+0.01);
+    g.gain.linearRampToValueAtTime(0.0001, t+dur);
+    o.connect(g).connect(audio.ctx.destination);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  // ---------- Theme helpers ----------
+  function panel(x,y,w,h, r=16) {
+    ctx.beginPath();
+    const rr = r;
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+  }
+
+  function drawText(txt, x, y, size=16, align='left', alpha=1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `700 ${size}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'top';
+    ctx.fillText(txt, x, y);
+    ctx.restore();
+  }
+
+  // ---------- Combat Data ----------
+  const Elements = {
+    physical: { name:"Physical" },
+    fire: { name:"Fire" },
+    water: { name:"Water" },
+    earth: { name:"Earth" },
+    lightning: { name:"Lightning" },
+    air: { name:"Air" },
+    light: { name:"Light" },
+    dark: { name:"Dark" },
+  };
+
+  const StatusDefs = {
+    burn: {
+      name:"Burn", icon:"🔥",
+      tick: (actor) => {
+        const dmg = Math.max(1, Math.floor(actor.maxHP * 0.04));
+        applyDamage(actor, dmg);
+        log(`${actor.name} takes ${dmg} burn damage.`);
+      }
+    },
+    soaked: { name:"Soaked", icon:"💧" },
+    shock:  { name:"Shock", icon:"⚡" },
+    corrupt:{ name:"Corrupted", icon:"☠️" },
+    guard:  { name:"Guard", icon:"🛡️" },
+  };
+
+  // Stat model (same for everyone)
+  // Strength, Stamina, Skill, Speed, Mind, Resolve, Essence (resource)
+  function mkActor(opts) {
+    const a = {
+      id: opts.id || ("a_"+Math.random().toString(16).slice(2)),
+      name: opts.name || "Unknown",
+      team: opts.team || "ally", // ally/enemy
+      // base stats
+      str: opts.str|0,
+      sta: opts.sta|0,
+      skl: opts.skl|0,
+      spd: opts.spd|0,
+      mind: opts.mind|0,
+      res: opts.res|0,
+      essMax: opts.essMax|0,
+      // derived
+      level: opts.level||1,
+      maxHP: 0,
+      hp: 0,
+      ess: 0,
+      statuses: [], // {key, turns}
+      alive: true,
+      // visual
+      x: opts.x||0, y: opts.y||0,
+      baseX: opts.x||0, baseY: opts.y||0,
+      color: opts.color || "#cfd6df",
+      outline: opts.outline || "#11151b",
+      // animation
+      anim: { t:0, kind:null, data:null },
+      abilities: opts.abilities || [],
+      ai: opts.ai || null,
+    };
+    a.maxHP = Math.max(20, Math.floor(40 + a.sta*6 + a.level*6));
+    a.hp = clamp(opts.hp ?? a.maxHP, 0, a.maxHP);
+    a.ess = clamp(opts.ess ?? a.essMax, 0, a.essMax);
+    return a;
+  }
+
+  // Damage formula: simple and readable.
+  // Physical: (attStr*2 + attSkl) vs (defSta + defRes/2)
+  // Magic:    (attMind*2 + attRes/2) vs (defRes*1.2 + defSta/2)
+  function computeDamage(att, def, power, elementKey) {
+    let atk = 0, mitig = 0;
+    const e = elementKey || "physical";
+    const soaked = hasStatus(def, "soaked");
+    const shock = hasStatus(def, "shock");
+    const corrupt = hasStatus(def, "corrupt");
+    const guarding = hasStatus(def, "guard");
+
+    if (e === "physical") {
+      atk = att.str*2 + att.skl*1.2;
+      mitig = def.sta*1.0 + def.res*0.5;
+    } else {
+      atk = att.mind*2 + att.res*0.6;
+      mitig = def.res*1.2 + def.sta*0.5;
+    }
+
+    // Simple elemental behavior modifiers (not rock-paper-scissors)
+    let mod = 1.0;
+    if (e === "fire" && soaked) mod *= 0.75;      // water dampens fire
+    if (e === "lightning" && soaked) mod *= 1.25; // soaked conducts lightning
+    if (e === "dark" && corrupt) mod *= 1.15;     // corruption feeds dark
+    if (e === "light" && corrupt) mod *= 1.25;    // light purges corruption more effectively
+    if (e === "earth" && shock) mod *= 0.85;      // grounded vs shock
+    if (e === "air" && guarding) mod *= 1.10;     // air slips past guard a bit
+
+    const raw = (power + atk) - mitig*0.85;
+    let dmg = Math.max(1, Math.floor(raw * mod));
+
+    // Guard reduces incoming damage
+    if (guarding) dmg = Math.max(1, Math.floor(dmg * 0.65));
+
+    return dmg;
+  }
+
+  function applyDamage(target, dmg) {
+    target.hp = clamp(target.hp - dmg, 0, target.maxHP);
+    if (target.hp <= 0) {
+      target.alive = false;
+      target.hp = 0;
+      clearStatus(target, "guard");
+    }
+  }
+
+  function heal(target, amt) {
+    target.hp = clamp(target.hp + amt, 0, target.maxHP);
+  }
+
+  function hasStatus(actor, key) {
+    return actor.statuses.some(s => s.key === key);
+  }
+
+  function addStatus(actor, key, turns) {
+    const existing = actor.statuses.find(s => s.key === key);
+    if (existing) existing.turns = Math.max(existing.turns, turns);
+    else actor.statuses.push({ key, turns });
+  }
+
+  function clearStatus(actor, key) {
+    actor.statuses = actor.statuses.filter(s => s.key !== key);
+  }
+
+  function tickStatusesStartTurn(actor) {
+    // status tick at start of actor's turn
+    for (const s of actor.statuses) {
+      if (s.key === "burn" && StatusDefs.burn.tick) {
+        StatusDefs.burn.tick(actor);
+      }
+    }
+  }
+
+  function decayStatusesEndTurn(actor) {
+    for (const s of actor.statuses) s.turns -= 1;
+    actor.statuses = actor.statuses.filter(s => s.turns > 0);
+  }
+
+  // ---------- Abilities ----------
+  // Each ability: name, cost, element, target: "enemy"/"ally"/"all_enemies"/"self"/"all_allies"
+  // effect(att, targets[])
+  const AbilityBook = {
+    slash: {
+      key:"slash",
+      name:"Slash",
+      cost:2,
+      element:"physical",
+      target:"enemy",
+      desc:"A quick lunge and cut.",
+      anim:"lunge",
+      power: 12,
+      effect(att, targets) {
+        const t = targets[0];
+        const dmg = computeDamage(att, t, this.power, this.element);
+        applyDamage(t, dmg);
+        log(`${att.name} uses Slash on ${t.name} for ${dmg}.`);
+        beep(220,0.06,'square',0.04);
+      }
+    },
+    stab: {
+      key:"stab",
+      name:"Stab",
+      cost:3,
+      element:"physical",
+      target:"enemy",
+      desc:"Precise strike; higher crit chance.",
+      anim:"lunge",
+      power: 10,
+      effect(att, targets) {
+        const t = targets[0];
+        let dmg = computeDamage(att, t, this.power, this.element);
+        const critChance = clamp(0.10 + (att.skl - t.res)*0.02, 0.05, 0.35);
+        if (Math.random() < critChance) {
+          dmg = Math.floor(dmg * 1.75);
+          log(`CRIT! ${att.name} Stabs ${t.name} for ${dmg}.`);
+          beep(520,0.06,'square',0.05);
+        } else {
+          log(`${att.name} uses Stab on ${t.name} for ${dmg}.`);
+          beep(260,0.05,'square',0.04);
+        }
+        applyDamage(t, dmg);
+      }
+    },
+    multislash: {
+      key:"multislash",
+      name:"Multi Slash",
+      cost:4,
+      element:"physical",
+      target:"enemy",
+      desc:"2–3 rapid hits (lower per hit).",
+      anim:"multi",
+      power: 7,
+      effect(att, targets) {
+        const t = targets[0];
+        const hits = (Math.random() < 0.55) ? 2 : 3;
+        let total = 0;
+        for (let i=0;i<hits;i++) {
+          const dmg = computeDamage(att, t, this.power, this.element);
+          applyDamage(t, dmg);
+          total += dmg;
+        }
+        log(`${att.name} uses Multi Slash (${hits} hits) on ${t.name} for ${total}.`);
+        beep(200,0.05,'square',0.04);
+      }
+    },
+    fire: {
+      key:"fire",
+      name:"Fire",
+      cost:5,
+      element:"fire",
+      target:"enemy",
+      desc:"Flame projectile; may Burn.",
+      anim:"projectile",
+      power: 14,
+      effect(att, targets) {
+        const t = targets[0];
+        const dmg = computeDamage(att, t, this.power, this.element);
+        applyDamage(t, dmg);
+        const burnChance = clamp(0.20 + (att.mind - t.res)*0.02, 0.10, 0.45);
+        if (t.alive && Math.random() < burnChance) {
+          addStatus(t, "burn", 3);
+          log(`${t.name} is Burned!`);
+        }
+        log(`${att.name} casts Fire on ${t.name} for ${dmg}.`);
+        beep(330,0.08,'sawtooth',0.04);
+      }
+    },
+    waterbomb: {
+      key:"waterbomb",
+      name:"Waterbomb",
+      cost:6,
+      element:"water",
+      target:"all_enemies",
+      desc:"Splash all foes; may Soak (conducts Lightning).",
+      anim:"aoe",
+      power: 9,
+      effect(att, targets) {
+        let total = 0;
+        for (const t of targets) {
+          if (!t.alive) continue;
+          const dmg = computeDamage(att, t, this.power, this.element);
+          applyDamage(t, dmg);
+          total += dmg;
+          const chance = clamp(0.30 + (att.mind - t.res)*0.015, 0.10, 0.55);
+          if (t.alive && Math.random() < chance) addStatus(t, "soaked", 3);
+        }
+        log(`${att.name} uses Waterbomb for ${total} total.`);
+        beep(160,0.09,'triangle',0.04);
+      }
+    },
+    shock: {
+      key:"shock",
+      name:"Shock",
+      cost:6,
+      element:"lightning",
+      target:"enemy",
+      desc:"Lightning strike; may Shock (turn delay). Strong vs Soaked.",
+      anim:"bolt",
+      power: 15,
+      effect(att, targets) {
+        const t = targets[0];
+        const dmg = computeDamage(att, t, this.power, this.element);
+        applyDamage(t, dmg);
+        const chance = clamp(0.25 + (att.mind - t.res)*0.02, 0.10, 0.50);
+        if (t.alive && Math.random() < chance) addStatus(t, "shock", 2);
+        log(`${att.name} uses Shock on ${t.name} for ${dmg}.`);
+        beep(440,0.05,'square',0.05);
+      }
+    },
+    guard: {
+      key:"guard",
+      name:"Guard",
+      cost:2,
+      element:"physical",
+      target:"self",
+      desc:"Brace; reduce damage until next turn.",
+      anim:"buff",
+      power: 0,
+      effect(att) {
+        addStatus(att, "guard", 2);
+        log(`${att.name} Guards.`);
+        beep(120,0.06,'triangle',0.04);
+      }
+    },
+    purge: {
+      key:"purge",
+      name:"Purge",
+      cost:5,
+      element:"light",
+      target:"ally",
+      desc:"Remove Corruption/Burn/Soaked/Shock from an ally; small heal.",
+      anim:"heal",
+      power: 0,
+      effect(att, targets) {
+        const t = targets[0];
+        clearStatus(t, "corrupt");
+        clearStatus(t, "burn");
+        clearStatus(t, "soaked");
+        clearStatus(t, "shock");
+        const amt = Math.max(4, Math.floor(att.mind*1.2 + att.res*0.6));
+        heal(t, amt);
+        log(`${att.name} uses Purge on ${t.name} (+${amt} HP).`);
+        beep(520,0.08,'sine',0.04);
+      }
+    },
+    corrupt: {
+      key:"corrupt",
+      name:"Corrupt",
+      cost:5,
+      element:"dark",
+      target:"enemy",
+      desc:"Dark mark; increases Dark/Light interactions.",
+      anim:"mark",
+      power: 10,
+      effect(att, targets) {
+        const t = targets[0];
+        const dmg = computeDamage(att, t, this.power, this.element);
+        applyDamage(t, dmg);
+        addStatus(t, "corrupt", 4);
+        log(`${att.name} uses Corrupt on ${t.name} for ${dmg}.`);
+        beep(90,0.08,'sawtooth',0.04);
+      }
+    },
+  };
+
+  // ---------- Battle State ----------
+  const state = {
+    debug: false,
+    phase: "battle",
+    turnQueue: [],
+    turnIndex: 0,
+    currentActor: null,
+    ui: {
+      mode: "choose_move", // choose_move | choose_target | anim | message
+      selectedMove: null,
+      selectedTargets: [],
+      scrollY: 0,
+      draggingMoves: false,
+      dragStartY: 0,
+      scrollStartY: 0,
+      flash: 0,
+    },
+    log: [],
+    round: 1,
+    anims: [],
+  };
+
+  function log(msg) {
+    state.log.unshift({ t: now(), msg });
+    if (state.log.length > 8) state.log.length = 8;
+  }
+
+  // ---------- Actors ----------
+  const allies = [];
+  const enemies = [];
+
+  function resetBattle() {
+    allies.length = 0; enemies.length = 0;
+    state.log.length = 0;
+    state.round = 1;
+    state.ui.mode = "choose_move";
+    state.ui.selectedMove = null;
+    state.ui.selectedTargets = [];
+    state.ui.scrollY = 0;
+
+    // Party (2 allies) to demonstrate command-style control
+    allies.push(mkActor({
+      id:"kael",
+      name:"Kael Varrin",
+      team:"ally",
+      level:1,
+      str:6, sta:6, skl:6, spd:6, mind:4, res:5, essMax:18,
+      x: 260, y: 315,
+      color:"#d6dde6",
+      outline:"#11151b",
+      abilities: ["slash","stab","multislash","guard","fire","shock","purge","waterbomb"].map(k => AbilityBook[k]),
+    }));
+
+    allies.push(mkActor({
+      id:"rook",
+      name:"Rook (Iron Lion)",
+      team:"ally",
+      level:1,
+      str:7, sta:7, skl:5, spd:4, mind:3, res:6, essMax:14,
+      x: 200, y: 365,
+      color:"#c7b27b",
+      outline:"#11151b",
+      abilities: ["slash","guard","multislash","stab"].map(k => AbilityBook[k]),
+    }));
+
+    // Enemies (2 foes)
+    enemies.push(mkActor({
+      id:"slime",
+      name:"Slime",
+      team:"enemy",
+      level:1,
+      str:4, sta:6, skl:3, spd:4, mind:2, res:2, essMax:10,
+      x: 720, y: 300,
+      color:"#7adf6b",
+      outline:"#0b2410",
+      abilities: ["slash","guard","corrupt"].map(k => AbilityBook[k]),
+      ai: "basic"
+    }));
+
+    enemies.push(mkActor({
+      id:"bandit",
+      name:"Bandit",
+      team:"enemy",
+      level:1,
+      str:6, sta:5, skl:6, spd:6, mind:2, res:4, essMax:12,
+      x: 780, y: 360,
+      color:"#df7a6b",
+      outline:"#2a0b0b",
+      abilities: ["stab","slash","multislash","guard"].map(k => AbilityBook[k]),
+      ai: "basic"
+    }));
+
+    // Make sure everyone starts with some Essence
+    for (const a of [...allies, ...enemies]) {
+      a.ess = a.essMax;
+      a.statuses = [];
+      a.alive = true;
+      a.hp = a.maxHP;
+      a.baseX = a.x; a.baseY = a.y;
+      a.anim = { t:0, kind:null, data:null };
+    }
+
+    log("Battle start! Tap a move, then tap a target.");
+    buildTurnQueue();
+    nextTurn();
+  }
+
+  function living(list) { return list.filter(a => a.alive); }
+  function allActors() { return [...allies, ...enemies]; }
+
+  function buildTurnQueue() {
+    // Speed-based order each round; shock lowers effective speed temporarily.
+    const arr = allActors().filter(a => a.alive);
+    const withInit = arr.map(a => {
+      let eff = a.spd;
+      if (hasStatus(a,"shock")) eff = Math.max(1, eff-2);
+      return { a, eff, tie: Math.random() };
+    });
+    withInit.sort((p,q) => (q.eff - p.eff) || (q.a.skl - p.a.skl) || (q.tie - p.tie));
+    state.turnQueue = withInit.map(x => x.a);
+    state.turnIndex = 0;
+  }
+
+  function nextTurn() {
+    // Check end of battle
+    if (living(enemies).length === 0) {
+      state.ui.mode = "message";
+      log("Victory! (Tap Reset to fight again)");
+      return;
+    }
+    if (living(allies).length === 0) {
+      state.ui.mode = "message";
+      log("Defeat... (Tap Reset to try again)");
+      return;
+    }
+
+    // If queue exhausted, new round
+    if (state.turnIndex >= state.turnQueue.length) {
+      state.round += 1;
+      buildTurnQueue();
+      state.turnIndex = 0;
+    }
+
+    state.currentActor = state.turnQueue[state.turnIndex++];
+    const a = state.currentActor;
+
+    if (!a.alive) { nextTurn(); return; }
+
+    // Start-of-turn status tick
+    tickStatusesStartTurn(a);
+    if (!a.alive) { log(`${a.name} falls.`); nextTurn(); return; }
+
+    // Small essence regen each turn
+    a.ess = clamp(a.ess + 2, 0, a.essMax);
+
+    // Clear one-turn guard if expired via decay at end; here we just continue.
+
+    // Decide player vs AI
+    if (a.team === "ally") {
+      state.ui.mode = "choose_move";
+      state.ui.selectedMove = null;
+      state.ui.selectedTargets = [];
+      log(`Your turn: ${a.name}`);
+    } else {
+      state.ui.mode = "anim";
+      runEnemyAI(a);
+    }
+  }
+
+  function endTurn(actor) {
+    // End-of-turn status decay
+    decayStatusesEndTurn(actor);
+    // tiny cooldown-like effect could go here later
+    nextTurn();
+  }
+
+  function spendEssence(actor, cost) {
+    actor.ess = clamp(actor.ess - cost, 0, actor.essMax);
+  }
+
+  // ---------- Enemy AI (simple) ----------
+  function runEnemyAI(actor) {
+    // pick a move that is affordable; prefer damage; use guard if low HP
+    const foes = living(allies);
+    const self = actor;
+    if (foes.length === 0) { endTurn(actor); return; }
+
+    const low = self.hp / self.maxHP < 0.35;
+    const moves = actor.abilities.filter(m => m.cost <= actor.ess);
+
+    let move = null;
+
+    if (low && moves.some(m => m.key === "guard") && Math.random() < 0.60) {
+      move = moves.find(m => m.key === "guard");
+    } else {
+      // prefer a random damaging move
+      const dmgMoves = moves.filter(m => ["enemy","all_enemies"].includes(m.target));
+      move = dmgMoves.length ? dmgMoves[irnd(0,dmgMoves.length-1)] : (moves[0] || AbilityBook.guard);
+    }
+
+    // choose target
+    let targets = [];
+    if (move.target === "enemy") {
+      // choose lowest hp ally sometimes
+      const sorted = [...foes].sort((a,b) => (a.hp/a.maxHP) - (b.hp/b.maxHP));
+      const t = (Math.random()<0.65) ? sorted[0] : foes[irnd(0,foes.length-1)];
+      targets = [t];
+    } else if (move.target === "all_enemies") {
+      targets = living(allies);
+    } else if (move.target === "self") {
+      targets = [actor];
+    } else {
+      targets = [actor];
+    }
+
+    // Execute with animation
+    performMove(actor, move, targets, true);
+  }
+
+  // ---------- Animations ----------
+  const FX = [];
+
+  function spawnFX(fx) {
+    FX.push(fx);
+  }
+
+  function performMove(att, move, targets, isAI=false) {
+    if (move.cost > att.ess) {
+      if (!isAI) log("Not enough Essence.");
+      beep(80,0.06,'square',0.03);
+      return false;
+    }
+
+    // spend
+    spendEssence(att, move.cost);
+
+    // Setup animation that ends by applying effect
+    state.ui.mode = "anim";
+    const anim = { t:0, dur: 520, kind: move.anim, att, move, targets };
+    state.anims.push(anim);
+
+    // Visual prep
+    if (move.anim === "lunge") {
+      att.anim.kind = "lunge";
+      att.anim.t = 0;
+      att.anim.data = { fromX: att.baseX, toX: att.baseX + (att.team==="ally" ? 70 : -70) };
+    }
+    if (move.anim === "multi") {
+      att.anim.kind = "multi";
+      att.anim.t = 0;
+      att.anim.data = { k:0 };
+    }
+    if (move.anim === "projectile") {
+      const t = targets[0];
+      spawnFX({
+        kind:"proj",
+        t:0, dur:480,
+        x0: att.x + (att.team==="ally"?18:-18),
+        y0: att.y-18,
+        x1: t.x + (t.team==="ally"?18:-18),
+        y1: t.y-18,
+        element: move.element
+      });
+    }
+    if (move.anim === "bolt") {
+      const t = targets[0];
+      spawnFX({ kind:"bolt", t:0, dur:360, x:t.x, y:t.y-40, element:move.element });
+    }
+    if (move.anim === "aoe") {
+      for (const t of targets) {
+        spawnFX({ kind:"splash", t:0, dur:480, x:t.x, y:t.y-18, element:move.element });
+      }
+    }
+    if (move.anim === "buff") {
+      spawnFX({ kind:"ring", t:0, dur:420, x:att.x, y:att.y-12, element:"earth" });
+    }
+    if (move.anim === "heal") {
+      const t = targets[0];
+      spawnFX({ kind:"ring", t:0, dur:520, x:t.x, y:t.y-12, element:"light" });
+    }
+    if (move.anim === "mark") {
+      const t = targets[0];
+      spawnFX({ kind:"mark", t:0, dur:520, x:t.x, y:t.y-18, element:"dark" });
+    }
+
+    return true;
+  }
+
+  function updateAnims(dt) {
+    // Advance FX
+    for (const fx of FX) fx.t += dt;
+    for (let i=FX.length-1;i>=0;i--) if (FX[i].t >= FX[i].dur) FX.splice(i,1);
+
+    // Advance actor anim
+    for (const a of allActors()) {
+      if (!a.anim.kind) continue;
+      a.anim.t += dt;
+      const t = a.anim.t;
+      if (a.anim.kind === "lunge") {
+        const d = a.anim.data;
+        const p = clamp(t/320, 0, 1);
+        // ease in/out lunge
+        const ease = p<0.5 ? (p*2) : (1-(p-0.5)*2);
+        a.x = lerp(d.fromX, d.toX, ease);
+        if (t >= 360) { a.x = a.baseX; a.anim.kind = null; }
+      } else if (a.anim.kind === "multi") {
+        // jitter forward/back
+        const phase = Math.sin(t/30)*6;
+        a.x = a.baseX + (a.team==="ally"?phase:-phase);
+        if (t >= 360) { a.x = a.baseX; a.anim.kind = null; }
+      }
+    }
+
+    // Move-resolution anims
+    for (const an of state.anims) an.t += dt;
+    for (let i=state.anims.length-1;i>=0;i--) {
+      const an = state.anims[i];
+      if (an.t >= an.dur) {
+        // Apply effect at end
+        try { an.move.effect(an.att, an.targets); } catch (e) { console.error(e); }
+        // If ally used Purge/Guard etc, no target kill check needed beyond normal
+        // End turn of actor
+        const actor = an.att;
+        state.anims.splice(i,1);
+        // if battle ended after effect, let message show
+        if (living(enemies).length===0 || living(allies).length===0) {
+          state.ui.mode = "message";
+          return;
+        }
+        state.ui.mode = "choose_move";
+        endTurn(actor);
+      }
+    }
+  }
+
+  // ---------- UI Layout ----------
+  const UI = {
+    topBar: { x: 12, y: 10, w: 936, h: 56 },
+    leftPanel: { x: 12, y: 76, w: 360, h: 452 },   // move list / log
+    arena: { x: 384, y: 76, w: 564, h: 452 },       // actors / target tap
+  };
+
+  function rectContains(r, x, y) {
+    return x>=r.x && y>=r.y && x<=r.x+r.w && y<=r.y+r.h;
+  }
+
+  // Move list item layout
+  function getMoveItemRect(i, scrollY) {
+    const x = UI.leftPanel.x + 12;
+    const y0 = UI.leftPanel.y + 88;
+    const w = UI.leftPanel.w - 24;
+    const h = 54;
+    const y = y0 + i*(h+10) - scrollY;
+    return { x, y, w, h };
+  }
+
+  // ---------- Rendering ----------
+  function draw() {
+    // Background
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle = "#0b0d10";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // Game viewport transform
+    ctx.translate(offX, offY);
+    ctx.scale(scale, scale);
+
+    // Inner background gradient-ish
+    ctx.fillStyle = "#0e1218";
+    ctx.fillRect(0,0,W0,H0);
+
+    // Top bar
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    panel(UI.topBar.x, UI.topBar.y, UI.topBar.w, UI.topBar.h, 18);
+    ctx.fill();
+
+    // Title + Round + controls
+    ctx.fillStyle = "#e8eef6";
+    drawText("IRON CLAD — Combat Demo v0.1", UI.topBar.x+16, UI.topBar.y+14, 18, 'left', 0.95);
+
+    ctx.fillStyle = "#b8c2ce";
+    const ta = state.currentActor ? state.currentActor.name : "—";
+    drawText(`Round ${state.round}   •   Turn: ${ta}`, UI.topBar.x+16, UI.topBar.y+36, 14, 'left', 0.9);
+
+    // Buttons: Reset / Debug / Mute
+    const btns = [
+      { key:"reset", label:"Reset", x:UI.topBar.x+UI.topBar.w-300, y:UI.topBar.y+12, w:90, h:32 },
+      { key:"debug", label: state.debug ? "Debug: ON" : "Debug: OFF", x:UI.topBar.x+UI.topBar.w-204, y:UI.topBar.y+12, w:110, h:32 },
+      { key:"mute", label: audio.muted ? "Sound: OFF" : "Sound: ON", x:UI.topBar.x+UI.topBar.w-88, y:UI.topBar.y+12, w:76, h:32 },
+    ];
+    for (const b of btns) {
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      panel(b.x,b.y,b.w,b.h, 12); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 2;
+      panel(b.x,b.y,b.w,b.h, 12); ctx.stroke();
+      ctx.fillStyle = "#e8eef6";
+      ctx.font = "700 13px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.label, b.x+b.w/2, b.y+b.h/2);
+    }
+
+    // Left panel
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    panel(UI.leftPanel.x, UI.leftPanel.y, UI.leftPanel.w, UI.leftPanel.h, 18);
+    ctx.fill();
+
+    // Arena
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    panel(UI.arena.x, UI.arena.y, UI.arena.w, UI.arena.h, 18);
+    ctx.fill();
+
+    // Left: Actor cards & moves
+    drawLeftPanel();
+
+    // Arena: draw ground
+    drawArena();
+
+    // Tap hint overlays
+    drawHints();
+
+    ctx.restore();
+  }
+
+  function drawBar(x,y,w,h, frac, label, fg, bg="rgba(0,0,0,0.35)") {
+    ctx.fillStyle = bg;
+    panel(x,y,w,h, 10); ctx.fill();
+    ctx.fillStyle = fg;
+    panel(x,y,w*clamp(frac,0,1),h, 10); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "800 12px system-ui";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x+10, y+h/2);
+  }
+
+  function drawActorCard(actor, x, y, w, h) {
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    panel(x,y,w,h, 14); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.09)";
+    ctx.lineWidth = 2;
+    panel(x,y,w,h, 14); ctx.stroke();
+
+    // portrait (simple shape)
+    const px = x+14, py = y+14;
+    ctx.fillStyle = actor.color;
+    ctx.strokeStyle = actor.outline;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(px, py, 44, 44, 10);
+    ctx.fill(); ctx.stroke();
+
+    // name
+    ctx.fillStyle = "#e8eef6";
+    drawText(actor.name, x+70, y+10, 14, 'left', actor.alive?0.95:0.45);
+
+    // statuses
+    const st = actor.statuses.slice(0,4).map(s => StatusDefs[s.key]?.icon || "?").join(" ");
+    ctx.fillStyle = "#cbd5e1";
+    drawText(st, x+70, y+30, 14, 'left', actor.alive?0.9:0.45);
+
+    // hp + essence bars
+    const hpF = actor.hp/actor.maxHP;
+    const esF = actor.ess/actor.essMax;
+    drawBar(x+70, y+52, w-84, 16, hpF, `HP ${actor.hp}/${actor.maxHP}`, "rgba(120,220,120,0.95)");
+    drawBar(x+70, y+72, w-84, 16, esF, `ESS ${actor.ess}/${actor.essMax}`, "rgba(120,170,255,0.95)");
+  }
+
+  function drawLeftPanel() {
+    const x = UI.leftPanel.x, y = UI.leftPanel.y, w = UI.leftPanel.w;
+
+    // Current side roster (allies)
+    ctx.fillStyle = "#e8eef6";
+    drawText("Allies", x+14, y+12, 14, 'left', 0.9);
+
+    let cy = y+34;
+    for (const a of allies) {
+      drawActorCard(a, x+14, cy, w-28, 96);
+      // highlight if current actor
+      if (state.currentActor && state.currentActor.id === a.id) {
+        ctx.strokeStyle = "rgba(255,255,255,0.35)";
+        ctx.lineWidth = 3;
+        panel(x+14, cy, w-28, 96, 14); ctx.stroke();
+      }
+      cy += 104;
+    }
+
+    // Divider
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(x+14, y+250, w-28, 2);
+
+    // Move list header
+    ctx.fillStyle = "#e8eef6";
+    drawText("Moves", x+14, y+260, 14, 'left', 0.9);
+
+    // Move list box (scrollable)
+    const list = { x:x+14, y:y+284, w:w-28, h:170 };
+    ctx.fillStyle = "rgba(0,0,0,0.20)";
+    panel(list.x, list.y, list.w, list.h, 14); ctx.fill();
+    ctx.save();
+    // clip
+    ctx.beginPath();
+    panel(list.x, list.y, list.w, list.h, 14);
+    ctx.clip();
+
+    const a = state.currentActor;
+    const moves = (a && a.team==="ally") ? a.abilities : [];
+    const scrollMax = Math.max(0, moves.length*64 - (list.h-16));
+    state.ui.scrollY = clamp(state.ui.scrollY, 0, scrollMax);
+
+    for (let i=0;i<moves.length;i++) {
+      const m = moves[i];
+      const r = getMoveItemRect(i, state.ui.scrollY);
+      if (r.y + r.h < list.y || r.y > list.y + list.h) continue;
+
+      const selected = state.ui.selectedMove && state.ui.selectedMove.key === m.key;
+      ctx.fillStyle = selected ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.08)";
+      panel(r.x, r.y, r.w, r.h, 14); ctx.fill();
+
+      // cost pill
+      ctx.fillStyle = "rgba(120,170,255,0.20)";
+      panel(r.x+10, r.y+10, 54, 22, 12); ctx.fill();
+      ctx.fillStyle = "#e8eef6";
+      ctx.font = "900 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`-${m.cost}`, r.x+37, r.y+21);
+
+      // name + element
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#e8eef6";
+      ctx.font = "900 14px system-ui";
+      ctx.fillText(m.name, r.x+74, r.y+10+2);
+
+      ctx.fillStyle = "rgba(255,255,255,0.70)";
+      ctx.font = "700 12px system-ui";
+      ctx.fillText(`${Elements[m.element]?.name || m.element} • ${m.target.replaceAll('_',' ')}`, r.x+74, r.y+30);
+
+      // affordability hint
+      const affordable = a ? (m.cost <= a.ess) : false;
+      if (!affordable) {
+        ctx.fillStyle = "rgba(255,120,120,0.20)";
+        panel(r.x+r.w-86, r.y+10, 76, 22, 12); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.font = "900 12px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("LOW ESS", r.x+r.w-48, r.y+21);
+      }
+    }
+    ctx.restore();
+
+    // Combat log
+    ctx.fillStyle = "#e8eef6";
+    drawText("Log", x+14, y+460, 14, 'left', 0.9);
+
+    const logBox = { x:x+14, y:y+484, w:w-28, h:34 };
+    ctx.fillStyle = "rgba(0,0,0,0.20)";
+    panel(logBox.x, logBox.y, logBox.w, logBox.h, 14); ctx.fill();
+
+    ctx.save();
+    ctx.beginPath(); panel(logBox.x, logBox.y, logBox.w, logBox.h, 14); ctx.clip();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "700 13px system-ui";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const line = state.log[0]?.msg || "—";
+    ctx.fillText(line, logBox.x+12, logBox.y+logBox.h/2);
+    ctx.restore();
+  }
+
+  function drawArena() {
+    const r = UI.arena;
+    // Inner arena background
+    ctx.save();
+    ctx.beginPath();
+    panel(r.x+10, r.y+10, r.w-20, r.h-20, 18);
+    ctx.clip();
+
+    // Ground
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    // subtle grid
+    ctx.strokeStyle = "rgba(255,255,255,0.03)";
+    ctx.lineWidth = 1;
+    for (let gx=r.x; gx<r.x+r.w; gx+=24) {
+      ctx.beginPath(); ctx.moveTo(gx, r.y); ctx.lineTo(gx, r.y+r.h); ctx.stroke();
+    }
+    for (let gy=r.y; gy<r.y+r.h; gy+=24) {
+      ctx.beginPath(); ctx.moveTo(r.x, gy); ctx.lineTo(r.x+r.w, gy); ctx.stroke();
+    }
+
+    // Draw enemy cards top right area
+    ctx.fillStyle = "#e8eef6";
+    drawText("Enemies (tap to target)", r.x+18, r.y+14, 14, 'left', 0.9);
+
+    // Draw actors (simple shapes)
+    for (const a of enemies) drawActorSprite(a);
+    for (const a of allies) drawActorSprite(a);
+
+    // FX
+    drawFX();
+
+    // Target highlight if choosing target
+    if (state.ui.mode === "choose_target" && state.ui.selectedMove) {
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 3;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        ctx.beginPath();
+        ctx.ellipse(e.x, e.y-10, 34, 22, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+
+    // Win/Lose overlay
+    if (state.ui.mode === "message" && (living(enemies).length===0 || living(allies).length===0)) {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.fillStyle = "#e8eef6";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 42px system-ui";
+      const msg = (living(enemies).length===0) ? "VICTORY" : "DEFEAT";
+      ctx.fillText(msg, r.x+r.w/2, r.y+r.h/2 - 18);
+      ctx.font = "700 16px system-ui";
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillText("Tap Reset in the top bar to fight again.", r.x+r.w/2, r.y+r.h/2 + 22);
+    }
+
+    ctx.restore();
+
+    // Debug overlay
+    if (state.debug) {
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.font = "700 12px system-ui";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("DEBUG: Tap an enemy while holding nothing to instantly defeat it. Tap Kael to refill Essence.", r.x+18, r.y+r.h-20);
+    }
+  }
+
+  function drawActorSprite(a) {
+    const alpha = a.alive ? 1 : 0.35;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(a.x, a.y+8, 26, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // body shape
+    ctx.fillStyle = a.color;
+    ctx.strokeStyle = a.outline;
+    ctx.lineWidth = 3;
+
+    // For demo: allies as rounded rect "armor", enemies as blob/triangle
+    if (a.team === "ally") {
+      // body
+      ctx.beginPath();
+      ctx.roundRect(a.x-18, a.y-42, 36, 44, 10);
+      ctx.fill(); ctx.stroke();
+      // head
+      ctx.beginPath();
+      ctx.arc(a.x, a.y-54, 14, 0, Math.PI*2);
+      ctx.fill(); ctx.stroke();
+      // weapon hint
+      ctx.strokeStyle = "rgba(255,255,255,0.65)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(a.x+18, a.y-20);
+      ctx.lineTo(a.x+34, a.y-38);
+      ctx.stroke();
+    } else {
+      if (a.id === "slime") {
+        ctx.beginPath();
+        ctx.moveTo(a.x-22, a.y-20);
+        ctx.quadraticCurveTo(a.x, a.y-62, a.x+22, a.y-20);
+        ctx.quadraticCurveTo(a.x+26, a.y+10, a.x, a.y+4);
+        ctx.quadraticCurveTo(a.x-26, a.y+10, a.x-22, a.y-20);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.roundRect(a.x-18, a.y-46, 36, 48, 8);
+        ctx.fill(); ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(a.x, a.y-56, 12, 0, Math.PI*2);
+        ctx.fill(); ctx.stroke();
+      }
+    }
+
+    // Status icons over head
+    if (a.statuses.length) {
+      const icons = a.statuses.slice(0,3).map(s => StatusDefs[s.key]?.icon || "?").join("");
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "700 16px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(icons, a.x, a.y-76);
+    }
+
+    // HP tiny bar
+    const frac = a.hp/a.maxHP;
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.beginPath();
+    ctx.roundRect(a.x-24, a.y+16, 48, 8, 6);
+    ctx.fill();
+    ctx.fillStyle = "rgba(120,220,120,0.9)";
+    ctx.beginPath();
+    ctx.roundRect(a.x-24, a.y+16, 48*frac, 8, 6);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawFX() {
+    for (const fx of FX) {
+      const p = clamp(fx.t / fx.dur, 0, 1);
+      const a = 1 - p;
+
+      if (fx.kind === "proj") {
+        const x = lerp(fx.x0, fx.x1, p);
+        const y = lerp(fx.y0, fx.y1, p) - Math.sin(p*Math.PI)*20;
+        ctx.save();
+        ctx.globalAlpha = 0.9*a;
+        ctx.fillStyle = fx.element === "fire" ? "rgba(255,120,60,0.95)"
+                      : fx.element === "water" ? "rgba(120,180,255,0.95)"
+                      : "rgba(200,200,255,0.95)";
+        ctx.beginPath();
+        ctx.arc(x,y, 10, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (fx.kind === "bolt") {
+        ctx.save();
+        ctx.globalAlpha = 0.85*a;
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 4;
+        const x = fx.x, y = fx.y;
+        ctx.beginPath();
+        ctx.moveTo(x, y-80);
+        ctx.lineTo(x+irnd(-8,8), y-40);
+        ctx.lineTo(x+irnd(-8,8), y-10);
+        ctx.lineTo(x+irnd(-8,8), y+20);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (fx.kind === "splash") {
+        ctx.save();
+        ctx.globalAlpha = 0.7*a;
+        ctx.fillStyle = "rgba(120,180,255,0.9)";
+        ctx.beginPath();
+        ctx.ellipse(fx.x, fx.y, 34*(1+p*0.6), 14*(1+p*0.6), 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (fx.kind === "ring") {
+        ctx.save();
+        ctx.globalAlpha = 0.7*a;
+        ctx.strokeStyle = fx.element==="light" ? "rgba(240,240,255,0.95)" : "rgba(160,220,160,0.7)";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, 10 + p*34, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (fx.kind === "mark") {
+        ctx.save();
+        ctx.globalAlpha = 0.7*a;
+        ctx.fillStyle = "rgba(120,60,170,0.8)";
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, 18 + Math.sin(p*Math.PI)*10, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawHints() {
+    const a = state.currentActor;
+    if (!a || !a.alive) return;
+
+    // If it's player's turn and no move selected
+    if (a.team==="ally" && state.ui.mode==="choose_move" && !state.ui.selectedMove) {
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      panel(UI.arena.x+18, UI.arena.y+58, 270, 40, 14);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = "800 14px system-ui";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Tap a Move on the left.", UI.arena.x+32, UI.arena.y+78);
+    }
+
+    // If target selection
+    if (state.ui.mode==="choose_target") {
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      panel(UI.arena.x+18, UI.arena.y+58, 360, 40, 14);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.font = "800 14px system-ui";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Tap an Enemy to target. (Tap move again to cancel)", UI.arena.x+32, UI.arena.y+78);
+    }
+  }
+
+  // ---------- Tap Handling ----------
+  function handleTap(x,y) {
+    ensureAudio();
+
+    // Top buttons
+    const btnReset = { x:UI.topBar.x+UI.topBar.w-300, y:UI.topBar.y+12, w:90, h:32 };
+    const btnDebug = { x:UI.topBar.x+UI.topBar.w-204, y:UI.topBar.y+12, w:110, h:32 };
+    const btnMute = { x:UI.topBar.x+UI.topBar.w-88, y:UI.topBar.y+12, w:76, h:32 };
+
+    const inBtn = (b) => x>=b.x && y>=b.y && x<=b.x+b.w && y<=b.y+b.h;
+    if (inBtn(btnReset)) { beep(180,0.05,'square',0.04); resetBattle(); return; }
+    if (inBtn(btnDebug)) { state.debug = !state.debug; saveSettings(); beep(220,0.05,'square',0.04); return; }
+    if (inBtn(btnMute)) { audio.muted = !audio.muted; saveSettings(); beep(140,0.05,'square',0.04); return; }
+
+    // If battle ended, ignore other taps
+    if (state.ui.mode === "message") return;
+
+    const a = state.currentActor;
+    if (!a || a.team!=="ally") return;
+    if (state.ui.mode === "anim") return;
+
+    // Move list scroll area
+    const moveBox = { x:UI.leftPanel.x+14, y:UI.leftPanel.y+284, w:UI.leftPanel.w-28, h:170 };
+    if (rectContains(moveBox, x,y)) {
+      // Determine which move item is tapped
+      const moves = a.abilities || [];
+      for (let i=0;i<moves.length;i++) {
+        const r = getMoveItemRect(i, state.ui.scrollY);
+        if (x>=r.x && y>=r.y && x<=r.x+r.w && y<=r.y+r.h) {
+          const m = moves[i];
+          // tapping same move cancels target mode
+          if (state.ui.selectedMove && state.ui.selectedMove.key === m.key && state.ui.mode==="choose_target") {
+            state.ui.selectedMove = null;
+            state.ui.mode = "choose_move";
+            beep(120,0.05,'triangle',0.03);
+            return;
+          }
+          state.ui.selectedMove = m;
+
+          // If self-target
+          if (m.target === "self") {
+            if (performMove(a, m, [a], false)) { /* anim will finish turn */ }
+            return;
+          }
+
+          // If all-enemies
+          if (m.target === "all_enemies") {
+            if (performMove(a, m, living(enemies), false)) { /* anim */ }
+            return;
+          }
+
+          // If ally-target, go choose ally
+          if (m.target === "ally") {
+            state.ui.mode = "choose_target";
+            beep(260,0.05,'square',0.03);
+            return;
+          }
+
+          // Enemy-target
+          if (m.target === "enemy") {
+            state.ui.mode = "choose_target";
+            beep(260,0.05,'square',0.03);
+            return;
+          }
+
+          return;
+        }
+      }
+      return;
+    }
+
+    // Target selection: tap enemies or allies in arena
+    if (rectContains(UI.arena, x,y) && state.ui.mode === "choose_target" && state.ui.selectedMove) {
+      const m = state.ui.selectedMove;
+
+      // Debug shortcuts
+      if (state.debug) {
+        // tap Kael to refill essence
+        const kael = allies.find(p => p.id==="kael");
+        if (kael && Math.hypot(x-kael.x, y-kael.y) < 40) {
+          kael.ess = kael.essMax;
+          log("DEBUG: Kael Essence refilled.");
+          beep(520,0.05,'sine',0.04);
+          return;
+        }
+        // tap enemy to defeat
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          if (Math.hypot(x-e.x, y-e.y) < 46) {
+            e.hp = 0; e.alive = false;
+            log(`DEBUG: ${e.name} defeated.`);
+            beep(420,0.05,'square',0.04);
+            return;
+          }
+        }
+      }
+
+      if (m.target === "enemy") {
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          if (Math.hypot(x-e.x, y-e.y) < 46) {
+            performMove(a, m, [e], false);
+            state.ui.selectedMove = null;
+            state.ui.mode = "choose_move";
+            return;
+          }
+        }
+        return;
+      }
+
+      if (m.target === "ally") {
+        for (const al of allies) {
+          if (!al.alive) continue;
+          if (Math.hypot(x-al.x, y-al.y) < 46) {
+            performMove(a, m, [al], false);
+            state.ui.selectedMove = null;
+            state.ui.mode = "choose_move";
+            return;
+          }
+        }
+        return;
+      }
+    }
+  }
+
+  // Drag to scroll moves (optional, helps mobile)
+  function handleDrag() {
+    const a = state.currentActor;
+    if (!a || a.team!=="ally") return;
+    if (state.ui.mode === "anim" || state.ui.mode === "message") return;
+
+    const moveBox = { x:UI.leftPanel.x+14, y:UI.leftPanel.y+284, w:UI.leftPanel.w-28, h:170 };
+    if (input.down && rectContains(moveBox, input.x, input.y)) {
+      if (!state.ui.draggingMoves) {
+        state.ui.draggingMoves = true;
+        state.ui.dragStartY = input.y;
+        state.ui.scrollStartY = state.ui.scrollY;
+      } else {
+        const dy = input.y - state.ui.dragStartY;
+        state.ui.scrollY = state.ui.scrollStartY - dy;
+      }
+    } else {
+      state.ui.draggingMoves = false;
+    }
+  }
+
+  // ---------- Game Loop ----------
+  let last = now();
+
+  function frame() {
+    const t = now();
+    const dt = clamp(t - last, 0, 33);
+    last = t;
+
+    // Handle UI interactions
+    if (input.tapped) {
+      input.tapped = false;
+      handleTap(input.tapX, input.tapY);
+    }
+    handleDrag();
+
+    // Update animations
+    updateAnims(dt);
+
+    // Render
+    draw();
+
+    requestAnimationFrame(frame);
+  }
+
+  // Start
+  loadSettings();
+  resetBattle();
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
