@@ -1,1 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Ironclad – Combat Demo</title>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #111;
+  color: #eee;
+  font-family: monospace;
+}
+#game {
+  display: block;
+  margin: 10px auto;
+  background: #222;
+  border: 2px solid #555;
+}
+#ui {
+  text-align: center;
+}
+button {
+  font-size: 16px;
+  padding: 12px 18px;
+  margin: 6px;
+  background: #444;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+}
+</style>
+</head>
+<body>
 
+<canvas id="game" width="360" height="200"></canvas>
+
+<div id="ui">
+  <div id="log">A Slime appears.</div>
+  <button onclick="attack()">Slash</button>
+  <button onclick="fire()">Fire</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let player = { hp: 30 };
+let enemy  = { hp: 20 };
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = "#4af"; // player
+  ctx.fillRect(40, 120, 30, 30);
+
+  ctx.fillStyle = "#4f4"; // enemy
+  ctx.fillRect(280, 100, 30, 30);
+
+  ctx.fillStyle = "#fff";
+  ctx.fillText("HP: " + player.hp, 20, 20);
+  ctx.fillText("Enemy HP: " + enemy.hp, 220, 20);
+}
+
+function attack() {
+  enemy.hp -= 5;
+  log("You slash the slime!");
+  enemyTurn();
+}
+
+function fire() {
+  enemy.hp -= 8;
+  log("You cast fire!");
+  enemyTurn();
+}
+
+function enemyTurn() {
+  if (enemy.hp <= 0) {
+    log("Enemy defeated!");
+    draw();
+    return;
+  }
+  player.hp -= 3;
+  log("The slime attacks!");
+  draw();
+}
+
+function log(text) {
+  document.getElementById("log").innerText = text;
+}
+
+draw();
+</script>
+
+</body>
+</html>
